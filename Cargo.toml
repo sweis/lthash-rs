@@ -1,0 +1,24 @@
+[package]
+name = "lthash"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libsodium-sys = { version = "0.2", optional = true }
+thiserror = "1.0"
+
+[features]
+default = ["sodium"]
+sodium = ["libsodium-sys"]
+
+[lib]
+name = "lthash"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lthash_example"
+path = "src/bin/example.rs"
+
+[[bin]]
+name = "test_cross_compat"
+path = "src/bin/test_cross_compat.rs"
