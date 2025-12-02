@@ -69,10 +69,16 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
+#[cfg(feature = "blake3-backend")]
+pub mod blake3_xof;
+#[cfg(feature = "folly-compat")]
 pub mod blake2xb;
 mod error;
 mod lthash;
 
+#[cfg(feature = "blake3-backend")]
+pub use blake3_xof::Blake3Xof;
+#[cfg(feature = "folly-compat")]
 pub use blake2xb::Blake2xb;
 pub use error::LtHashError;
 pub use lthash::{LtHash, LtHash16_1024, LtHash20_1008, LtHash32_1024};

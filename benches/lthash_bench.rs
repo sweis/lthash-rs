@@ -1,21 +1,56 @@
 //! Benchmarks for LtHash operations
 //!
-//! Run with: cargo bench
+//! Run with:
+//!   cargo bench                                    # BLAKE3 (default)
+//!   cargo bench --features folly-compat            # Blake2xb (Folly-compatible)
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use lthash::{Blake2xb, LtHash16_1024, LtHash20_1008, LtHash32_1024};
+use lthash::{LtHash16_1024, LtHash20_1008, LtHash32_1024};
 
-/// Benchmark Blake2xb hash at various output sizes
-fn bench_blake2xb(c: &mut Criterion) {
-    let mut group = c.benchmark_group("blake2xb");
+#[cfg(feature = "blake3-backend")]
+use lthash::Blake3Xof;
+#[cfg(feature = "folly-compat")]
+use lthash::Blake2xb;
 
-    // Test data sizes
+/// Benchmark BLAKE3 XOF at various output sizes (default)
+#[cfg(feature = "blake3-backend")]
+fn bench_blake3(c: &mut Criterion) {
+    let mut group = c.benchmark_group("blake3");
+
     let input_sizes = [64, 256, 1024, 4096];
 
     for input_size in input_sizes {
         let input = vec![0xABu8; input_size];
 
-        // Benchmark 64-byte output (single block)
+        group.throughput(Throughput::Bytes(input_size as u64));
+        group.bench_function(format!("hash_{input_size}B_to_64B"), |b| {
+            let mut output = vec![0u8; 64];
+            b.iter(|| {
+                Blake3Xof::hash(black_box(&mut output), black_box(&input), &[], &[], &[]).unwrap();
+            });
+        });
+
+        group.bench_function(format!("hash_{input_size}B_to_2048B"), |b| {
+            let mut output = vec![0u8; 2048];
+            b.iter(|| {
+                Blake3Xof::hash(black_box(&mut output), black_box(&input), &[], &[], &[]).unwrap();
+            });
+        });
+    }
+
+    group.finish();
+}
+
+/// Benchmark Blake2xb XOF at various output sizes (Folly-compatible)
+#[cfg(feature = "folly-compat")]
+fn bench_blake2xb(c: &mut Criterion) {
+    let mut group = c.benchmark_group("blake2xb");
+
+    let input_sizes = [64, 256, 1024, 4096];
+
+    for input_size in input_sizes {
+        let input = vec![0xABu8; input_size];
+
         group.throughput(Throughput::Bytes(input_size as u64));
         group.bench_function(format!("hash_{input_size}B_to_64B"), |b| {
             let mut output = vec![0u8; 64];
@@ -24,7 +59,6 @@ fn bench_blake2xb(c: &mut Criterion) {
             });
         });
 
-        // Benchmark 2048-byte output (LtHash16_1024 size)
         group.bench_function(format!("hash_{input_size}B_to_2048B"), |b| {
             let mut output = vec![0u8; 2048];
             b.iter(|| {
@@ -40,7 +74,6 @@ fn bench_blake2xb(c: &mut Criterion) {
 fn bench_lthash_add(c: &mut Criterion) {
     let mut group = c.benchmark_group("lthash_add");
 
-    // Test various object sizes
     let object_sizes = [32, 128, 512, 1024];
 
     for size in object_sizes {
@@ -79,13 +112,11 @@ fn bench_lthash_add(c: &mut Criterion) {
 fn bench_lthash_combine(c: &mut Criterion) {
     let mut group = c.benchmark_group("lthash_combine");
 
-    // Setup: create two hashes with some data
     let mut hash1 = LtHash16_1024::new().unwrap();
     let mut hash2 = LtHash16_1024::new().unwrap();
     hash1.add_object(b"test data 1").unwrap();
     hash2.add_object(b"test data 2").unwrap();
 
-    // Benchmark try_add (non-panicking)
     group.bench_function("16_1024_try_add", |b| {
         let mut hash_a = hash1.clone();
         b.iter(|| {
@@ -93,7 +124,6 @@ fn bench_lthash_combine(c: &mut Criterion) {
         });
     });
 
-    // Benchmark try_sub (non-panicking)
     group.bench_function("16_1024_try_sub", |b| {
         let mut hash_a = hash1.clone();
         b.iter(|| {
@@ -101,7 +131,6 @@ fn bench_lthash_combine(c: &mut Criterion) {
         });
     });
 
-    // Setup for LtHash32_1024
     let mut hash1_32 = LtHash32_1024::new().unwrap();
     let mut hash2_32 = LtHash32_1024::new().unwrap();
     hash1_32.add_object(b"test data 1").unwrap();
@@ -129,15 +158,11 @@ fn bench_checksum_compare(c: &mut Criterion) {
     let checksum = hash1.get_checksum().to_vec();
 
     group.bench_function("16_1024_checksum_equals", |b| {
-        b.iter(|| {
-            hash1.checksum_equals(black_box(&checksum)).unwrap()
-        });
+        b.iter(|| hash1.checksum_equals(black_box(&checksum)).unwrap());
     });
 
     group.bench_function("16_1024_eq", |b| {
-        b.iter(|| {
-            black_box(&hash1) == black_box(&hash2)
-        });
+        b.iter(|| black_box(&hash1) == black_box(&hash2));
     });
 
     group.finish();
@@ -148,34 +173,38 @@ fn bench_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("creation");
 
     group.bench_function("16_1024_new", |b| {
-        b.iter(|| {
-            LtHash16_1024::new().unwrap()
-        });
+        b.iter(|| LtHash16_1024::new().unwrap());
     });
 
     group.bench_function("20_1008_new", |b| {
-        b.iter(|| {
-            LtHash20_1008::new().unwrap()
-        });
+        b.iter(|| LtHash20_1008::new().unwrap());
     });
 
     group.bench_function("32_1024_new", |b| {
-        b.iter(|| {
-            LtHash32_1024::new().unwrap()
-        });
+        b.iter(|| LtHash32_1024::new().unwrap());
     });
 
-    // With initial checksum
     let checksum = vec![0u8; LtHash16_1024::checksum_size_bytes()];
     group.bench_function("16_1024_with_checksum", |b| {
-        b.iter(|| {
-            LtHash16_1024::with_checksum(black_box(&checksum)).unwrap()
-        });
+        b.iter(|| LtHash16_1024::with_checksum(black_box(&checksum)).unwrap());
     });
 
     group.finish();
 }
 
+// Default: BLAKE3 backend
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+criterion_group!(
+    benches,
+    bench_blake3,
+    bench_lthash_add,
+    bench_lthash_combine,
+    bench_checksum_compare,
+    bench_creation,
+);
+
+// Folly-compatible: Blake2xb backend
+#[cfg(feature = "folly-compat")]
 criterion_group!(
     benches,
     bench_blake2xb,

@@ -67,6 +67,9 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
+#[cfg(feature = "blake3-backend")]
+use crate::blake3_xof::Blake3Xof;
+#[cfg(feature = "folly-compat")]
 use crate::blake2xb::Blake2xb;
 use crate::error::LtHashError;
 use std::marker::PhantomData;
@@ -248,7 +251,29 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(result == 0)
     }
 
-    /// Hash object directly into the pre-allocated scratch buffer
+    /// Hash object directly into the pre-allocated scratch buffer (BLAKE3 backend, default)
+    ///
+    /// Uses BLAKE3 XOF for high-performance hashing. This is the default backend.
+    #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+    fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
+        if let Some(ref key) = self.key {
+            Blake3Xof::hash(&mut self.scratch, data, key, &[], &[])?;
+        } else {
+            Blake3Xof::hash(&mut self.scratch, data, &[], &[], &[])?;
+        }
+
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut self.scratch);
+        }
+
+        Ok(())
+    }
+
+    /// Hash object directly into the pre-allocated scratch buffer (Blake2xb backend)
+    ///
+    /// Uses Blake2xb for compatibility with Facebook's Folly C++ implementation.
+    /// Enable with `--features folly-compat`.
+    #[cfg(feature = "folly-compat")]
     fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
         if let Some(ref key) = self.key {
             Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;

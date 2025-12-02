@@ -1,292 +1,145 @@
 # LtHash-rs
 
-A Rust implementation of LtHash (Lattice-based Hash) with Blake2xb, providing cryptographically secure homomorphic hashing capabilities.
+A Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses BLAKE3 by default for high performance, with optional Blake2xb backend for [Folly C++ compatibility](https://github.com/facebook/folly/tree/main/folly/crypto).
 
-# Warning
+## Warning
 
 This is vibe coded by Claude Code. A human has not really even looked at it. But it passes the tests and generates the same bytes as the Facebook Folly C++ implementation. Don't trust it or use it for anything as is. It was just done for fun.
 
-## Overview
+## Features
 
-LtHash is a lattice-based cryptographic hash function that supports homomorphic operations, enabling efficient verification and updating of hash values without recomputing from scratch. Originally developed by Bellare and Micciancio and refined by Facebook for production use, this implementation is supposed to be compatible with the reference C++ implementation in Facebook's Folly library.
+- **Homomorphic hashing**: `H(A ∪ B) = H(A) + H(B)` — add/remove elements without rehashing
+- **Three variants**: LtHash16 (2KB), LtHash20 (2.6KB), LtHash32 (4KB) checksums
+- **CLI tool** with Unix piping support
 
-### Background and Applications
+## Installation
 
-This implementation is based on Facebook's homomorphic hashing work, as described in their [2019 engineering blog post](https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/) and detailed in the [IACR ePrint paper 2019/227](https://eprint.iacr.org/2019/227). The algorithm builds upon the foundational work in [Bellare and Micciancio's original paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf).
-
-**Primary Use Cases:**
-- **Distributed Database Verification**: Efficiently validate database updates across untrusted networks
-- **Secure Update Propagation**: Enable subscribers to verify data integrity without direct distributor communication  
-- **Incremental Hashing**: Update hash values by adding/removing individual elements rather than rehashing entire datasets
-- **Set Reconciliation**: Compare and synchronize distributed datasets using compact hash representations
-
-Facebook deployed this technology in their Location Aware Distribution (LAD) configuration management system to securely propagate database updates across their global infrastructure.
-
-### Features
-
-- **Blake2xb**: Extendable Output Function (XOF) based on Blake2b
-- **LtHash**: Homomorphic hash with three variants:
-  - `LtHash<16, 1024>` - 16-bit elements, 1024 elements (2048 bytes output)
-  - `LtHash<20, 1008>` - 20-bit elements, 1008 elements (2688 bytes output) 
-  - `LtHash<32, 1024>` - 32-bit elements, 1024 elements (4096 bytes output)
-- **Homomorphic Properties**: 
-  - Commutative: `H(a + b) = H(b + a)`
-  - Additive: `H(a) + H(b) = H(a + b)`
-  - Subtractive: `H(a) - H(b) = H(a - b)`
-
-## Requirements
-
-- Rust 1.70+ 
-- libsodium (automatically installed via `libsodium-sys`)
-
-### Installing libsodium (if needed)
-
-**macOS:**
 ```bash
-brew install libsodium
+cargo add lthash
 ```
 
-**Ubuntu/Debian:**
-```bash
-sudo apt-get install libsodium-dev
-```
+No system dependencies required. Just works.
 
-**Windows:**
-The `libsodium-sys` crate will automatically download and build libsodium.
-
-## Building
+## CLI Usage
 
 ```bash
-# Build the library
+# Build the CLI
 cargo build --release
 
-# Build with debug symbols
-cargo build
+# Hash a file (outputs URL-safe base64)
+lthash myfile.txt
+
+# Hash stdin
+cat myfile.txt | lthash -
+
+# Add files to a hash (piping)
+lthash file1.txt | lthash add - file2.txt | lthash add - file3.txt
+
+# Subtract a file's contribution
+lthash sub "$HASH" removed_file.txt
+
+# Verify homomorphic property: hash(a) + hash(b) - hash(b) == hash(a)
+lthash a.txt | lthash add - b.txt | lthash sub - b.txt
 ```
 
-## Testing
-
-```bash
-# Run all tests
-cargo test
-
-# Run cross-compatibility tests with C++ implementation
-cargo run --bin test_cross_compat
-
-# Run example usage
-cargo run --bin lthash_example
-```
-
-## Usage
-
-### Blake2xb (Extendable Output Function)
-
-```rust
-use lthash::Blake2xb;
-
-// Create hash with any output length (1 to 4GB)
-let mut output = vec![0u8; 128];
-Blake2xb::hash(&mut output, b"hello world", &[], &[], &[])?;
-
-// With key, salt, and personalization
-let key = b"secret key";
-let salt = [1u8; 16];
-let personal = [2u8; 16];
-Blake2xb::hash(&mut output, b"data", key, &salt, &personal)?;
-```
-
-### LtHash (Homomorphic Hash)
+## Library Usage
 
 ```rust
 use lthash::{LtHash16_1024, LtHashError};
 
-// Create empty hash
-let mut hash = LtHash16_1024::new()?;
+fn main() -> Result<(), LtHashError> {
+    // Create and populate hash
+    let mut hash = LtHash16_1024::new()?;
+    hash.add_object(b"document1")?;
+    hash.add_object(b"document2")?;
+    hash.remove_object(b"document1")?;
 
-// Add objects (order doesn't matter - commutative)
-hash.add_object(b"document1")?;
-hash.add_object(b"document2")?;
+    // Combine hashes (homomorphic addition)
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add_object(b"file1")?;
 
-// Remove objects
-hash.remove_object(b"document1")?;
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.add_object(b"file2")?;
 
-// Get final checksum
-let checksum = hash.get_checksum();
+    // Using operators (panics on key mismatch)
+    let combined = hash1.clone() + hash2.clone();
 
-// Combine hashes from different sources
-let mut hash1 = LtHash16_1024::new()?;
-hash1.add_object(b"file1")?;
+    // Using fallible methods (returns Result)
+    hash1.try_add(&hash2)?;
 
-let mut hash2 = LtHash16_1024::new()?;
-hash2.add_object(b"file2")?;
-
-let combined = hash1 + hash2; // Homomorphic addition
-```
-
-### Keyed LtHash
-
-```rust
-use lthash::LtHash16_1024;
-
-let mut hash = LtHash16_1024::new()?;
-
-// Set secret key (16-64 bytes)
-let key = b"my-secret-key-for-authentication";
-hash.set_key(key)?;
-
-hash.add_object(b"sensitive data")?;
-let authenticated_checksum = hash.get_checksum();
-
-// Clear key securely
-hash.clear_key();
-```
-
-## API Reference
-
-### Blake2xb
-
-```rust
-impl Blake2xb {
-    // Output length constraints
-    const MIN_OUTPUT_LENGTH: usize = 1;
-    const MAX_OUTPUT_LENGTH: usize = 0xfffffffe; // ~4GB
-    const UNKNOWN_OUTPUT_LENGTH: usize = 0;
-    
-    // One-shot hashing
-    fn hash(
-        out: &mut [u8],
-        data: &[u8], 
-        key: &[u8],
-        salt: &[u8],
-        personalization: &[u8],
-    ) -> Result<(), LtHashError>;
-    
-    // Streaming interface
-    fn new() -> Self;
-    fn init(&mut self, output_length: usize, key: &[u8], salt: &[u8], personalization: &[u8]) -> Result<(), LtHashError>;
-    fn update(&mut self, data: &[u8]) -> Result<(), LtHashError>;
-    fn finish(&mut self, out: &mut [u8]) -> Result<(), LtHashError>;
+    Ok(())
 }
 ```
 
-### LtHash
+### With Authentication Key
 
 ```rust
-impl<const B: usize, const N: usize> LtHash<B, N> {
-    // Creation
+let mut hash = LtHash16_1024::new()?;
+hash.set_key(b"my-secret-key-here")?;  // 16-64 bytes
+hash.add_object(b"sensitive data")?;
+// Key is securely zeroed on drop or clear_key()
+```
+
+## API
+
+```rust
+// Type aliases
+type LtHash16_1024 = LtHash<16, 1024>;  // 2048 bytes
+type LtHash20_1008 = LtHash<20, 1008>;  // 2688 bytes
+type LtHash32_1024 = LtHash<32, 1024>;  // 4096 bytes
+
+impl LtHash<B, N> {
     fn new() -> Result<Self, LtHashError>;
-    fn with_checksum(initial_checksum: &[u8]) -> Result<Self, LtHashError>;
-    
-    // Key management
-    fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError>;
-    fn clear_key(&mut self);
-    
-    // Operations
+    fn with_checksum(checksum: &[u8]) -> Result<Self, LtHashError>;
+
     fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
     fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
-    fn reset(&mut self);
-    
-    // Checksum access
+
+    fn try_add(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
+    fn try_sub(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
+
     fn get_checksum(&self) -> &[u8];
-    fn checksum_equals(&self, other_checksum: &[u8]) -> Result<bool, LtHashError>;
-    
-    // Constants
     fn checksum_size_bytes() -> usize;
-    fn element_size_in_bits() -> usize;
-    fn elements_per_u64() -> usize;
-    fn element_count() -> usize;
-    fn has_padding_bits() -> bool;
+
+    fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError>;  // 16-64 bytes
+    fn clear_key(&mut self);
 }
 
-// Homomorphic operations
-impl Add<LtHash<B, N>> for LtHash<B, N>;
-impl Sub<LtHash<B, N>> for LtHash<B, N>;
-impl AddAssign<LtHash<B, N>> for LtHash<B, N>;
-impl SubAssign<LtHash<B, N>> for LtHash<B, N>;
-
-// Type aliases
-type LtHash16_1024 = LtHash<16, 1024>;
-type LtHash20_1008 = LtHash<20, 1008>; 
-type LtHash32_1024 = LtHash<32, 1024>;
+// Operators: +, -, +=, -= (panic on key mismatch)
 ```
 
-## Error Handling
+## Folly Compatibility Mode
 
-```rust
-#[derive(Debug, thiserror::Error)]
-pub enum LtHashError {
-    #[error("Blake2 error: {0}")]
-    Blake2Error(String),
-    
-    #[error("Invalid checksum size: expected {expected}, got {actual}")]
-    InvalidChecksumSize { expected: usize, actual: usize },
-    
-    #[error("Output size mismatch: expected {expected}, got {actual}")]
-    OutputSizeMismatch { expected: usize, actual: usize },
-    
-    #[error("Invalid key size: expected {expected}, got {actual}")]
-    InvalidKeySize { expected: String, actual: usize },
-    
-    #[error("Invalid salt length: {0} (must be 16 bytes)")]
-    InvalidSaltLength(usize),
-    
-    #[error("Invalid personalization length: {0} (must be 16 bytes)")]
-    InvalidPersonalizationLength(usize),
-    
-    #[error("Output length too large: max {max}, got {actual}")]
-    OutputLengthTooLarge { max: usize, actual: usize },
-    
-    #[error("Method {method} called before initialization")]
-    NotInitialized { method: String },
-    
-    #[error("Method {method} called after finish")]
-    AlreadyFinished { method: String },
-    
-    #[error("Method {0} already called")]
-    AlreadyCalled(String),
-    
-    #[error("Invalid checksum padding bits")]
-    InvalidChecksumPadding,
-}
+If you need byte-for-byte compatibility with Facebook's Folly C++ implementation, use the `folly-compat` feature. This switches to Blake2xb (requires libsodium):
+
+```bash
+# Install libsodium
+brew install libsodium        # macOS
+sudo apt install libsodium-dev # Ubuntu/Debian
+
+# Build with Folly compatibility
+cargo build --features folly-compat
+
+# Run compatibility tests
+cargo test --features folly-compat
+cargo run --bin test_cross_compat --features folly-compat
 ```
 
-## Security Considerations
+Note: The default BLAKE3 backend produces different output than Folly. Use `folly-compat` only if you need to interoperate with existing Folly-based systems.
 
-LtHash provides **at least 200 bits of security** and is designed to be secure in the random oracle model:
+## Testing
 
-1. **Collision Resistance**: Computationally infeasible to find two distinct sets with the same hash
-2. **Keys**: Always use cryptographically secure random keys (16-64 bytes)
-3. **Constant-time**: All comparison operations use constant-time algorithms
-4. **Key clearing**: Keys are securely zeroed when `clear_key()` is called or when dropped
-5. **Padding validation**: Padding bits are validated and cleared automatically
-6. **Lattice-based Security**: Built on well-studied lattice cryptography foundations
+```bash
+cargo test                    # Test with BLAKE3 (default)
+cargo test --features folly-compat  # Test with Blake2xb
+```
 
-## Implementation References
+## References
 
-This Rust implementation is fully compatible with Facebook's C++ reference implementation:
-
-- **Facebook Folly Library**: [`folly/crypto/LtHash.h`](https://github.com/facebook/folly/tree/main/folly/crypto) and [`folly/experimental/crypto/`](https://github.com/facebook/folly/tree/main/folly/experimental/crypto)
-- **Blake2xb Implementation**: Compatible with [`folly/crypto/Blake2xb.h`](https://github.com/facebook/folly/tree/main/folly/crypto)
-
-### Cross-Compatibility
-
-This Rust implementation produces identical output to the C++ reference implementation:
-
-- All Blake2xb test vectors match exactly
-- All LtHash operations produce identical checksums
-- Homomorphic properties are preserved
-- Binary layout is compatible
-
-Run `cargo run --bin test_cross_compat` to verify compatibility.
-
-## Performance
-
-The implementation includes optimized arithmetic for different element sizes:
-
-- **16-bit elements**: Uses split-lane SIMD-style arithmetic
-- **20-bit elements**: Handles padding bits correctly  
-- **32-bit elements**: Optimized for 32-bit operations
+- [Facebook Engineering Blog](https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/)
+- [IACR ePrint 2019/227](https://eprint.iacr.org/2019/227)
+- [Bellare-Micciancio Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See the parent directory for the full license text.
+Apache 2.0

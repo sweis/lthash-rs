@@ -36,7 +36,7 @@ use std::mem;
 use std::ptr;
 use zeroize::Zeroize;
 
-#[cfg(feature = "sodium")]
+#[cfg(feature = "folly-compat")]
 use libsodium_sys::*;
 
 /// Blake2xb parameter block - matches the C++ Folly implementation layout
