@@ -86,7 +86,8 @@ fn main() -> Result<(), LtHashError> {
 
 ```rust
 let mut hash = LtHash16_1024::new()?;
-hash.set_key(b"my-secret-key-here")?;  // 16-64 bytes
+// Key material is run through BLAKE3 KDF to derive a 32-byte key
+hash.set_key(b"any-length-key-material")?;
 hash.add_object(b"sensitive data")?;
 // Key is securely zeroed on drop or clear_key()
 ```
@@ -112,7 +113,7 @@ impl LtHash<B, N> {
     fn get_checksum(&self) -> &[u8];
     fn checksum_size_bytes() -> usize;
 
-    fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError>;  // 16-64 bytes
+    fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError>;  // Any length, KDF-derived
     fn clear_key(&mut self);
 }
 

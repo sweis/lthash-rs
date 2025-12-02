@@ -87,7 +87,7 @@ use zeroize::Zeroize;
 pub struct LtHash<const B: usize, const N: usize> {
     /// Packed checksum data as raw bytes (multiple B-bit elements per u64)
     checksum: Vec<u8>,
-    /// Optional cryptographic key for authenticated hashing (16-64 bytes)
+    /// Optional cryptographic key for authenticated hashing (derived to 32 bytes)
     key: Option<Vec<u8>>,
     /// Pre-allocated scratch buffer to avoid allocations in add_object/remove_object
     scratch: Vec<u8>,
@@ -185,7 +185,37 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(())
     }
 
+    /// Set the authentication key for keyed hashing.
+    ///
+    /// The key material is run through a KDF (BLAKE3 derive_key) to produce
+    /// a fixed 32-byte derived key. This allows accepting arbitrary-length
+    /// key material while ensuring uniform key distribution.
+    ///
+    /// For folly-compat mode, the key is used directly (16-64 bytes required)
+    /// to maintain compatibility with Facebook's implementation.
     #[must_use = "this returns a Result that must be checked"]
+    #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+    pub fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError> {
+        if key.is_empty() {
+            return Err(LtHashError::InvalidKeySize {
+                expected: "non-empty",
+                actual: 0,
+            });
+        }
+
+        self.clear_key();
+        // Derive a 32-byte key using BLAKE3's KDF
+        let derived = blake3::derive_key("lthash-rs v1 keyed hash", key);
+        self.key = Some(derived.to_vec());
+        Ok(())
+    }
+
+    /// Set the authentication key for keyed hashing (folly-compat mode).
+    ///
+    /// In folly-compat mode, the key is used directly without derivation
+    /// to maintain byte-for-byte compatibility with Facebook's implementation.
+    #[must_use = "this returns a Result that must be checked"]
+    #[cfg(feature = "folly-compat")]
     pub fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError> {
         if key.len() < 16 || key.len() > 64 {
             return Err(LtHashError::InvalidKeySize {

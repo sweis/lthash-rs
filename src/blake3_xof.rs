@@ -93,13 +93,12 @@ impl Blake3Xof {
         let hasher = if key.is_empty() {
             blake3::Hasher::new()
         } else if key.len() == 32 {
-            // BLAKE3 requires exactly 32-byte keys
+            // Key should already be derived to 32 bytes by LtHash::set_key()
             let key_array: [u8; 32] = key.try_into().unwrap();
             blake3::Hasher::new_keyed(&key_array)
         } else {
-            // For non-32-byte keys, derive a 32-byte key using BLAKE3's derive_key
-            // This maintains security while supporting variable key lengths
-            let derived_key = blake3::derive_key("lthash-rs key derivation v1", key);
+            // Fallback for direct Blake3Xof usage with non-32-byte keys
+            let derived_key = blake3::derive_key("lthash-rs blake3xof key", key);
             blake3::Hasher::new_keyed(&derived_key)
         };
 
