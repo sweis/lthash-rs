@@ -1,24 +1,11 @@
 use lthash::{LtHash16_1024, LtHashError};
 
-#[cfg(feature = "sodium")]
-use lthash::Blake2xb;
 #[cfg(feature = "blake3-backend")]
 use lthash::Blake3Xof;
+#[cfg(feature = "folly-compat")]
+use lthash::Blake2xb;
 
 mod test_vectors;
-
-#[cfg(feature = "sodium")]
-#[test]
-fn test_blake2xb_basic() -> Result<(), LtHashError> {
-    // Test basic Blake2xb functionality
-    let mut output = vec![0u8; 32];
-    Blake2xb::hash(&mut output, b"hello world", &[], &[], &[])?;
-
-    // Should produce consistent output
-    assert_eq!(output.len(), 32);
-    assert_ne!(output, vec![0u8; 32]); // Should not be all zeros
-    Ok(())
-}
 
 #[cfg(feature = "blake3-backend")]
 #[test]
@@ -26,6 +13,19 @@ fn test_blake3_basic() -> Result<(), LtHashError> {
     // Test basic Blake3Xof functionality
     let mut output = vec![0u8; 32];
     Blake3Xof::hash(&mut output, b"hello world", &[], &[], &[])?;
+
+    // Should produce consistent output
+    assert_eq!(output.len(), 32);
+    assert_ne!(output, vec![0u8; 32]); // Should not be all zeros
+    Ok(())
+}
+
+#[cfg(feature = "folly-compat")]
+#[test]
+fn test_blake2xb_basic() -> Result<(), LtHashError> {
+    // Test basic Blake2xb functionality
+    let mut output = vec![0u8; 32];
+    Blake2xb::hash(&mut output, b"hello world", &[], &[], &[])?;
 
     // Should produce consistent output
     assert_eq!(output.len(), 32);
@@ -45,7 +45,7 @@ fn test_lthash_basic() -> Result<(), LtHashError> {
     Ok(())
 }
 
-#[cfg(feature = "sodium")]
+#[cfg(feature = "folly-compat")]
 #[test]
 fn test_blake2xb_vectors() -> Result<(), LtHashError> {
     // Test against static vectors (only for Blake2xb/Folly compatibility)
@@ -69,7 +69,7 @@ fn test_blake2xb_vectors() -> Result<(), LtHashError> {
     Ok(())
 }
 
-#[cfg(feature = "sodium")]
+#[cfg(feature = "folly-compat")]
 #[test]
 fn test_lthash_vectors() -> Result<(), LtHashError> {
     // Test LtHash against static vectors (only valid for Blake2xb backend)

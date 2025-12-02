@@ -101,8 +101,8 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 
 ## Dependencies
 
-- `libsodium-sys` (0.2) - C bindings to libsodium (optional via `sodium` feature)
-- `blake3` (1.5) - Pure Rust BLAKE3 implementation (optional via `blake3-backend` feature)
+- `blake3` (1.5) - Pure Rust BLAKE3 implementation (default via `blake3-backend` feature)
+- `libsodium-sys` (0.2) - C bindings to libsodium (optional via `folly-compat` feature)
 - `thiserror` (1.0) - Error derive macro
 - `zeroize` (1.x) - Secure memory zeroing
 - `base64` (0.22) - URL-safe base64 encoding for CLI
@@ -114,15 +114,15 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 
 The crate supports two XOF backends:
 
-### Blake2xb (default, `sodium` feature)
+### BLAKE3 (default, `blake3-backend` feature)
+- **Pros**: Pure Rust, no C dependencies, 6-16x faster than Blake2xb
+- **Cons**: Not compatible with Folly output
+- **Use when**: Performance matters (most use cases)
+
+### Blake2xb (`folly-compat` feature)
 - **Pros**: Binary-compatible with Facebook's Folly C++ implementation
 - **Cons**: Requires libsodium C library, slower performance
 - **Use when**: You need interoperability with existing Folly-based systems
-
-### BLAKE3 (`blake3-backend` feature)
-- **Pros**: Pure Rust, no C dependencies, 6-16x faster than Blake2xb
-- **Cons**: Not compatible with Folly output
-- **Use when**: Performance is critical and you don't need Folly compatibility
 
 ### Performance Comparison
 
@@ -136,15 +136,15 @@ The crate supports two XOF backends:
 ### Usage
 
 ```bash
-# Build with Blake2xb (default, Folly-compatible)
+# Build with BLAKE3 (default, fast, pure Rust)
 cargo build
 
-# Build with BLAKE3 (faster, pure Rust)
-cargo build --no-default-features --features blake3-backend
+# Build with Blake2xb (Folly-compatible)
+cargo build --features folly-compat
 
 # Run benchmarks for each backend
-cargo bench                                              # Blake2xb
-cargo bench --no-default-features --features blake3-backend  # BLAKE3
+cargo bench                         # BLAKE3
+cargo bench --features folly-compat # Blake2xb
 ```
 
 ### Security Equivalence

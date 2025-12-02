@@ -14,9 +14,9 @@ base64 = "0.22"
 criterion = "0.5"
 
 [features]
-default = ["sodium"]
-sodium = ["libsodium-sys"]
+default = ["blake3-backend"]
 blake3-backend = ["blake3"]
+folly-compat = ["libsodium-sys"]  # For Facebook Folly C++ compatibility
 
 [lib]
 name = "lthash"
@@ -25,12 +25,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "lthash_example"
 path = "src/bin/example.rs"
-required-features = ["sodium"]
+required-features = ["folly-compat"]
 
 [[bin]]
 name = "test_cross_compat"
 path = "src/bin/test_cross_compat.rs"
-required-features = ["sodium"]
+required-features = ["folly-compat"]
 
 [[bin]]
 name = "lthash"
