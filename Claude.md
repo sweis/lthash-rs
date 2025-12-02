@@ -29,24 +29,15 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 1. **Constant-time comparison** in `checksum_equals()` and `PartialEq`
 2. **Secure key clearing** using `zeroize` crate (won't be optimized away)
 3. **Secure clearing of intermediate hash** (`h0`, `key_block` in Blake2xb)
-4. **Padding bit validation** for 20-bit variant
-5. **Key size validation** (16-64 bytes)
-6. **Safe alignment handling** using `align_to()` with assertions
-7. **`#[must_use]` attributes** on key methods to prevent ignored errors
+4. **Secure clearing on drop** for all hasher structs and LtHash checksum/scratch
+5. **Padding bit validation** for 20-bit variant
+6. **Key size validation** (16-64 bytes)
+7. **Safe alignment handling** using `align_to()` with assertions
+8. **`#[must_use]` attributes** on key methods to prevent ignored errors
 
 ---
 
 ## Remaining Issues
-
-### MEDIUM PRIORITY
-
-1. **Blake2xb/Blake3Xof state not cleared on drop**
-   - Internal hasher state may contain sensitive material after use
-   - Consider implementing `Drop` with `Zeroize` for these structs
-
-2. **Checksum not securely cleared on drop for LtHash**
-   - Only the key is cleared, not the checksum vector
-   - Add `ZeroizeOnDrop` if checksums are considered sensitive
 
 ### LOW PRIORITY
 

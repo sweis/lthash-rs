@@ -444,3 +444,24 @@ impl Default for Blake2xb {
         Self::new()
     }
 }
+
+impl Drop for Blake2xb {
+    fn drop(&mut self) {
+        // Securely zero the Blake2b state which may contain sensitive material
+        unsafe {
+            ptr::write_bytes(
+                &mut self.state as *mut _ as *mut u8,
+                0,
+                mem::size_of::<crypto_generichash_blake2b_state>(),
+            );
+            ptr::write_bytes(
+                &mut self.param as *mut _ as *mut u8,
+                0,
+                mem::size_of::<Blake2xbParam>(),
+            );
+        }
+        self.output_length_known = false;
+        self.initialized = false;
+        self.finished = false;
+    }
+}
