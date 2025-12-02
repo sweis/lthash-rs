@@ -638,6 +638,9 @@ impl<const B: usize, const N: usize> std::ops::Sub for LtHash<B, N> {
 
 impl<const B: usize, const N: usize> Drop for LtHash<B, N> {
     fn drop(&mut self) {
+        // Securely clear all potentially sensitive data
+        self.checksum.zeroize();
+        self.scratch.zeroize();
         self.clear_key();
     }
 }

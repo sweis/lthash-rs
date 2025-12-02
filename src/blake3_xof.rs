@@ -178,6 +178,17 @@ impl Default for Blake3Xof {
     }
 }
 
+impl Drop for Blake3Xof {
+    fn drop(&mut self) {
+        // Drop the hasher (blake3::Hasher will be deallocated)
+        // Note: blake3::Hasher doesn't implement Zeroize, so we can't guarantee
+        // its internal state is zeroed before deallocation
+        self.hasher = None;
+        self.output_length = 0;
+        self.finished = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
