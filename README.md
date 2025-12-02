@@ -6,8 +6,6 @@ A Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Use
 
 - **Homomorphic hashing**: `H(A ∪ B) = H(A) + H(B)` — add/remove elements without rehashing
 - **Three variants**: LtHash16 (2KB), LtHash20 (2.6KB), LtHash32 (4KB) checksums
-- **Pure Rust**: No C dependencies by default (BLAKE3 backend)
-- **Fast**: BLAKE3 is 6-16x faster than Blake2xb
 - **CLI tool** with Unix piping support
 
 ## Installation
