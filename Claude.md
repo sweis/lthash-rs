@@ -31,7 +31,7 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 3. **Secure clearing of intermediate hash** (`h0`, `key_block` in Blake2xb)
 4. **Secure clearing on drop** for all hasher structs and LtHash checksum/scratch
 5. **Padding bit validation** for 20-bit variant
-6. **Key size validation** (16-64 bytes)
+6. **Key derivation via KDF** - `set_key()` uses BLAKE3 derive_key to produce 32-byte keys
 7. **Safe alignment handling** using `align_to()` with assertions
 8. **`#[must_use]` attributes** on key methods to prevent ignored errors
 
