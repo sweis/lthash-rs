@@ -3,7 +3,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum LtHashError {
     #[error("Invalid key size: expected {expected}, got {actual}")]
-    InvalidKeySize { expected: String, actual: usize },
+    InvalidKeySize { expected: &'static str, actual: usize },
 
     #[error("Invalid salt length: expected 16 bytes, got {0}")]
     InvalidSaltLength(usize),
@@ -24,14 +24,17 @@ pub enum LtHashError {
     InvalidChecksumPadding,
 
     #[error("Must call init() before calling {method}")]
-    NotInitialized { method: String },
+    NotInitialized { method: &'static str },
 
     #[error("Cannot call {method} after finish()")]
-    AlreadyFinished { method: String },
+    AlreadyFinished { method: &'static str },
 
     #[error("{0} already called")]
-    AlreadyCalled(String),
+    AlreadyCalled(&'static str),
 
     #[error("Blake2b operation failed: {0}")]
-    Blake2Error(String),
+    Blake2Error(&'static str),
+
+    #[error("Key mismatch: cannot combine LtHashes with different keys")]
+    KeyMismatch,
 }

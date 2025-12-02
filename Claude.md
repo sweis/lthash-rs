@@ -9,6 +9,7 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 1. **blake2xb.rs** - Blake2xb XOF (Extendable Output Function) implementation using libsodium
 2. **lthash.rs** - Core LtHash homomorphic hash with const generics for different configurations
 3. **error.rs** - Error types using thiserror
+4. **lthash_cli.rs** - Unix-friendly command-line tool for hashing and combining checksums
 
 ### Supported Configurations
 - `LtHash<16, 1024>` - 16-bit elements, 1024 elements (2048 bytes)
@@ -17,38 +18,63 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 
 ---
 
-## Applied Security Fixes (Quick Wins)
+## Applied Changes
 
-The following high-impact, low-effort fixes have been applied:
+### Security Fixes
 
-### 1. Added `zeroize` crate for secure memory clearing
-- **File**: `Cargo.toml`
-- Added `zeroize = { version = "1", features = ["zeroize_derive"] }` dependency
+1. **Added `zeroize` crate for secure memory clearing**
+   - Key material uses `zeroize()` instead of `fill(0)` - won't be optimized away
+   - Intermediate hash `h0` and key blocks are securely zeroed on all exit paths
 
-### 2. Fixed unsafe alignment in `as_u64_slice` functions
-- **File**: `lthash.rs:429-451`
-- Changed from direct pointer casts to using `align_to()` which properly handles alignment
-- Added assertions to catch any alignment issues at runtime
+2. **Fixed unsafe alignment in `as_u64_slice` functions**
+   - Changed from direct pointer casts to using `align_to()` with assertions
 
-### 3. Implemented secure zeroing for sensitive data
-- **File**: `lthash.rs:174-180` - Key material now uses `zeroize()` instead of `fill(0)`
-- **File**: `blake2xb.rs:245,289,305,316` - Intermediate hash `h0` is securely zeroed on all exit paths
-- **File**: `blake2xb.rs:434-435` - Key block is securely zeroed after use
+3. **Added `#[must_use]` attributes** to key methods to prevent ignored errors
 
-### 4. Added `#[must_use]` attributes to key methods
-- **File**: `lthash.rs` - Added to `new()`, `with_checksum()`, `set_key()`, `add_object()`, `remove_object()`, `get_checksum()`, `checksum_equals()`
-- **File**: `blake2xb.rs` - Added to `hash()`
+### Reliability Fixes
+
+4. **Added `try_add()` and `try_sub()` methods**
+   - Non-panicking alternatives to `+` and `-` operators
+   - Return `Result<(), LtHashError>` with `KeyMismatch` error
+
+5. **Changed error types from `String` to `&'static str`**
+   - Eliminates allocations on error paths
+   - `InvalidKeySize`, `NotInitialized`, `AlreadyFinished`, `AlreadyCalled`, `Blake2Error` now use static strings
+
+6. **Documented panic behavior in `Default` impl**
+   - Added doc comment explaining when/why it might panic
+   - Standard type aliases are guaranteed to succeed
+
+### Performance Improvements
+
+7. **Pre-allocated scratch buffer**
+   - Added `scratch: Vec<u8>` field to `LtHash` struct
+   - `add_object()` and `remove_object()` now reuse this buffer
+   - Eliminates allocation per operation
+
+8. **Benchmark infrastructure**
+   - Added `criterion` dev-dependency
+   - Benchmarks in `benches/lthash_bench.rs` for Blake2xb, add/sub, combine operations
+
+### CLI Tool
+
+9. **Added Unix-friendly `lthash` binary**
+   - `lthash FILE` - hash a file, output URL-safe base64
+   - `lthash add HASH FILE` - add file to existing hash
+   - `lthash sub HASH FILE` - subtract file from hash
+   - Supports `-` for stdin in both file and hash positions
+   - Piping: `lthash file1 | lthash add - file2 | lthash add - file3`
 
 ---
 
 ## Current Security Measures
 
 1. Constant-time comparison in `checksum_equals()` and `PartialEq`
-2. **Secure key clearing** using `zeroize` crate (won't be optimized away)
-3. **Secure clearing of intermediate hash values** (`h0`, `key_block`)
+2. Secure key clearing using `zeroize` crate
+3. Secure clearing of intermediate hash values (`h0`, `key_block`)
 4. Padding bit validation for 20-bit variant
 5. Key size validation (16-64 bytes)
-6. **Safe alignment handling** using `align_to()` instead of raw pointer casts
+6. Safe alignment handling using `align_to()`
 
 ---
 
@@ -56,69 +82,19 @@ The following high-impact, low-effort fixes have been applied:
 
 ### MEDIUM PRIORITY
 
-1. **Blake2xb state not cleared on finish** (`blake2xb.rs`)
-   - The internal state structure may contain sensitive material after hashing completes.
+1. **Blake2xb state not cleared on finish**
+   - The internal state structure may contain sensitive material after hashing completes
    - Consider implementing `Zeroize` on `Drop` for `Blake2xb`
 
 2. **Checksum Vec<u8> not securely cleared on drop for LtHash**
-   - Only the key is cleared, not the checksum which could contain sensitive data.
-   - Could add `ZeroizeOnDrop` derive if checksums are considered sensitive
+   - Only the key is cleared, not the checksum
+   - Could add `ZeroizeOnDrop` if checksums are considered sensitive
 
 ### LOW PRIORITY
 
-3. **Panic in operator overloads** (`lthash.rs`)
-   - `AddAssign` and `SubAssign` panic if keys don't match
-   - Consider adding `try_add`, `try_sub` methods that return Result
-
-4. **Default trait panics on error** (`lthash.rs`)
-   - Could fail silently if compile_time_checks() fails
-
-5. **Error types use String allocation** (`error.rs`)
-   - `InvalidKeySize { expected: String, ... }` allocates on error path
-   - Could use `&'static str` or an enum
-
----
-
-## Performance Analysis
-
-### Current State
-- Uses SIMD-style lane splitting for 16/32-bit arithmetic
-- Relies on libsodium for Blake2b (well-optimized)
-
-### Potential Improvements
-
-1. **Add SIMD intrinsics** for add/subtract operations
-   - The lane-splitting approach is good but actual SIMD would be faster
-   - Could use `std::arch` for x86_64 AVX2 or aarch64 NEON
-
-2. **Cache-line aligned allocation**
-   - Comment mentions it but not implemented (`lthash.rs:100-101`)
-   - Would benefit from aligned allocator for checksum buffer
-
-3. **Avoid repeated allocations**
-   - `hash_object` allocates a new `Vec` on each call (`lthash.rs:190`)
-   - Could pre-allocate or use a scratch buffer in the struct
-
-4. **Const generic optimization**
-   - `compile_time_checks()` runs at runtime but could be `const fn`
-   - Move more validation to compile time
-
----
-
-## Test Coverage
-
-Current tests cover:
-- Basic Blake2xb hashing
-- LtHash operations (add, remove)
-- Homomorphic properties (commutativity, additive inverse)
-- Cross-compatibility with C++ test vectors
-
-Missing tests:
-- Error path coverage
-- Edge cases (empty data, max size data)
-- Key handling (set, clear, different keys)
-- Padding bit validation (20-bit variant)
-- Concurrent usage (if applicable)
+3. **Operator overloads still panic**
+   - `+=` and `-=` panic on key mismatch (use `try_add`/`try_sub` instead)
+   - This is intentional - operators should be fast, Results for safety
 
 ---
 
@@ -127,17 +103,41 @@ Missing tests:
 - `libsodium-sys` (0.2) - C bindings to libsodium (optional via `sodium` feature)
 - `thiserror` (1.0) - Error derive macro
 - `zeroize` (1.x) - Secure memory zeroing
+- `base64` (0.22) - URL-safe base64 encoding for CLI
+- `criterion` (0.5) - Benchmarking (dev-dependency)
 
-Minimal dependency footprint is good for security-critical code.
+---
+
+## CLI Usage
+
+```bash
+# Hash a file
+lthash myfile.txt
+
+# Hash stdin
+cat myfile.txt | lthash -
+
+# Add files to a hash (piping)
+lthash file1.txt | lthash add - file2.txt | lthash add - file3.txt
+
+# Subtract a file's contribution
+lthash sub $COMBINED_HASH removed_file.txt
+
+# Round-trip test (hash(a) + hash(b) - hash(b) == hash(a))
+lthash a.txt | lthash add - b.txt | lthash sub - b.txt
+```
+
+Output is URL-safe base64 (no padding), safe for command-line arguments.
 
 ---
 
 ## Summary
 
-The implementation is functional and matches the Facebook Folly C++ implementation. The quick wins have been applied:
+The implementation is fully functional with:
 
-- **Alignment safety** - Fixed with `align_to()`
-- **Secure key/data clearing** - Using `zeroize` crate
-- **API safety** - Added `#[must_use]` attributes
+- **Security** - Alignment safety, secure memory clearing, `#[must_use]`
+- **Reliability** - Non-panicking APIs (`try_add`, `try_sub`), static error strings
+- **Performance** - Pre-allocated scratch buffer eliminates per-operation allocations
+- **Usability** - Unix-friendly CLI with piping support
 
-All tests pass including cross-compatibility tests with C++ reference implementation.
+All tests pass including cross-compatibility with C++ reference implementation.

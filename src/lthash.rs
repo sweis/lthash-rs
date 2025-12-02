@@ -81,14 +81,36 @@ use zeroize::Zeroize;
 /// The checksum is stored as a packed array of B-bit elements, with multiple
 /// elements stored in each u64 word for efficiency. Optional cryptographic
 /// keys provide authentication when set.
-#[derive(Clone, Debug)]
 pub struct LtHash<const B: usize, const N: usize> {
     /// Packed checksum data as raw bytes (multiple B-bit elements per u64)
     checksum: Vec<u8>,
     /// Optional cryptographic key for authenticated hashing (16-64 bytes)
     key: Option<Vec<u8>>,
+    /// Pre-allocated scratch buffer to avoid allocations in add_object/remove_object
+    scratch: Vec<u8>,
     /// Zero-sized marker for const generic parameters
     _phantom: PhantomData<()>,
+}
+
+// Manual Clone implementation to avoid cloning the scratch buffer unnecessarily
+impl<const B: usize, const N: usize> Clone for LtHash<B, N> {
+    fn clone(&self) -> Self {
+        LtHash {
+            checksum: self.checksum.clone(),
+            key: self.key.clone(),
+            scratch: vec![0u8; Self::checksum_size_bytes()], // Fresh scratch buffer
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<const B: usize, const N: usize> std::fmt::Debug for LtHash<B, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LtHash")
+            .field("checksum_len", &self.checksum.len())
+            .field("has_key", &self.key.is_some())
+            .finish()
+    }
 }
 
 impl<const B: usize, const N: usize> LtHash<B, N> {
@@ -97,14 +119,11 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Self::compile_time_checks()?;
 
         let checksum_size = Self::checksum_size_bytes();
-        let checksum = vec![0u8; checksum_size];
-
-        // Align to cache line boundary if possible
-        // In a real implementation, you might want to use aligned allocators
 
         Ok(LtHash {
-            checksum,
+            checksum: vec![0u8; checksum_size],
             key: None,
+            scratch: vec![0u8; checksum_size],
             _phantom: PhantomData,
         })
     }
@@ -113,9 +132,11 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     pub fn with_checksum(initial_checksum: &[u8]) -> Result<Self, LtHashError> {
         Self::compile_time_checks()?;
 
-        if initial_checksum.len() != Self::checksum_size_bytes() {
+        let checksum_size = Self::checksum_size_bytes();
+
+        if initial_checksum.len() != checksum_size {
             return Err(LtHashError::InvalidChecksumSize {
-                expected: Self::checksum_size_bytes(),
+                expected: checksum_size,
                 actual: initial_checksum.len(),
             });
         }
@@ -124,12 +145,13 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             Self::check_padding_bits(initial_checksum)?;
         }
 
-        let mut checksum = vec![0u8; Self::checksum_size_bytes()];
+        let mut checksum = vec![0u8; checksum_size];
         checksum.copy_from_slice(initial_checksum);
 
         Ok(LtHash {
             checksum,
             key: None,
+            scratch: vec![0u8; checksum_size],
             _phantom: PhantomData,
         })
     }
@@ -164,7 +186,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     pub fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError> {
         if key.len() < 16 || key.len() > 64 {
             return Err(LtHashError::InvalidKeySize {
-                expected: "16-64 bytes".to_string(),
+                expected: "16-64 bytes",
                 actual: key.len(),
             });
         }
@@ -188,17 +210,19 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[must_use = "this returns a Result that must be checked"]
     pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        let mut hash_output = vec![0u8; Self::checksum_size_bytes()];
-        self.hash_object(&mut hash_output, data)?;
-        self.add_hash_to_checksum(&hash_output)?;
+        // Use pre-allocated scratch buffer to avoid allocation
+        self.scratch.fill(0);
+        self.hash_object_into_scratch(data)?;
+        Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
     #[must_use = "this returns a Result that must be checked"]
     pub fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        let mut hash_output = vec![0u8; Self::checksum_size_bytes()];
-        self.hash_object(&mut hash_output, data)?;
-        self.subtract_hash_from_checksum(&hash_output)?;
+        // Use pre-allocated scratch buffer to avoid allocation
+        self.scratch.fill(0);
+        self.hash_object_into_scratch(data)?;
+        Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
@@ -224,33 +248,19 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(result == 0)
     }
 
-    fn hash_object(&self, out: &mut [u8], data: &[u8]) -> Result<(), LtHashError> {
-        if out.len() != Self::checksum_size_bytes() {
-            return Err(LtHashError::OutputSizeMismatch {
-                expected: Self::checksum_size_bytes(),
-                actual: out.len(),
-            });
-        }
-
+    /// Hash object directly into the pre-allocated scratch buffer
+    fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
         if let Some(ref key) = self.key {
-            Blake2xb::hash(out, data, key, &[], &[])?;
+            Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;
         } else {
-            Blake2xb::hash(out, data, &[], &[], &[])?;
+            Blake2xb::hash(&mut self.scratch, data, &[], &[], &[])?;
         }
 
         if Self::has_padding_bits() {
-            Self::clear_padding_bits(out);
+            Self::clear_padding_bits(&mut self.scratch);
         }
 
         Ok(())
-    }
-
-    fn add_hash_to_checksum(&mut self, hash: &[u8]) -> Result<(), LtHashError> {
-        Self::math_add(&mut self.checksum, hash)
-    }
-
-    fn subtract_hash_from_checksum(&mut self, hash: &[u8]) -> Result<(), LtHashError> {
-        Self::math_subtract(&mut self.checksum, hash)
     }
 
     /// Core homomorphic addition operation
@@ -487,6 +497,34 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         }
     }
 
+    /// Try to add another LtHash to this one, returning an error if keys don't match.
+    ///
+    /// This is a non-panicking alternative to the `+` and `+=` operators.
+    ///
+    /// # Errors
+    /// Returns `LtHashError::KeyMismatch` if the two hashes have different keys.
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn try_add(&mut self, rhs: &Self) -> Result<(), LtHashError> {
+        if !self.keys_equal(rhs) {
+            return Err(LtHashError::KeyMismatch);
+        }
+        Self::math_add(&mut self.checksum, &rhs.checksum)
+    }
+
+    /// Try to subtract another LtHash from this one, returning an error if keys don't match.
+    ///
+    /// This is a non-panicking alternative to the `-` and `-=` operators.
+    ///
+    /// # Errors
+    /// Returns `LtHashError::KeyMismatch` if the two hashes have different keys.
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn try_sub(&mut self, rhs: &Self) -> Result<(), LtHashError> {
+        if !self.keys_equal(rhs) {
+            return Err(LtHashError::KeyMismatch);
+        }
+        Self::math_subtract(&mut self.checksum, &rhs.checksum)
+    }
+
     fn keys_equal(&self, other: &Self) -> bool {
         match (&self.key, &other.key) {
             (None, None) => true,
@@ -506,9 +544,18 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     }
 }
 
+/// Default implementation for LtHash.
+///
+/// # Panics
+/// Panics if the compile-time const generic parameters `B` and `N` are invalid.
+/// This will only happen if using unsupported configurations. The standard
+/// type aliases (`LtHash16_1024`, `LtHash20_1008`, `LtHash32_1024`) are guaranteed
+/// to succeed.
+///
+/// If you need a fallible constructor, use `LtHash::new()` instead.
 impl<const B: usize, const N: usize> Default for LtHash<B, N> {
     fn default() -> Self {
-        Self::new().expect("Failed to create default LtHash")
+        Self::new().expect("Failed to create default LtHash: invalid B or N parameters")
     }
 }
 
