@@ -34,6 +34,7 @@
 use crate::error::LtHashError;
 use std::mem;
 use std::ptr;
+use zeroize::Zeroize;
 
 #[cfg(feature = "sodium")]
 use libsodium_sys::*;
@@ -134,7 +135,7 @@ impl Blake2xb {
 
         if !key.is_empty() && key.len() > 64 {
             return Err(LtHashError::InvalidKeySize {
-                expected: "0-64 bytes".to_string(),
+                expected: "0-64 bytes",
                 actual: key.len(),
             });
         }
@@ -191,14 +192,10 @@ impl Blake2xb {
 
     pub fn update(&mut self, data: &[u8]) -> Result<(), LtHashError> {
         if !self.initialized {
-            return Err(LtHashError::NotInitialized {
-                method: "update".to_string(),
-            });
+            return Err(LtHashError::NotInitialized { method: "update" });
         }
         if self.finished {
-            return Err(LtHashError::AlreadyFinished {
-                method: "update".to_string(),
-            });
+            return Err(LtHashError::AlreadyFinished { method: "update" });
         }
 
         let result = unsafe {
@@ -207,7 +204,7 @@ impl Blake2xb {
 
         if result != 0 {
             return Err(LtHashError::Blake2Error(
-                "crypto_generichash_blake2b_update failed".to_string(),
+                "crypto_generichash_blake2b_update failed",
             ));
         }
 
@@ -216,22 +213,19 @@ impl Blake2xb {
 
     pub fn finish(&mut self, out: &mut [u8]) -> Result<(), LtHashError> {
         if !self.initialized {
-            return Err(LtHashError::NotInitialized {
-                method: "finish".to_string(),
-            });
+            return Err(LtHashError::NotInitialized { method: "finish" });
         }
         if self.finished {
-            return Err(LtHashError::AlreadyCalled("finish".to_string()));
+            return Err(LtHashError::AlreadyCalled("finish"));
         }
 
         if self.output_length_known {
             let expected_len = u32::from_le(self.param.xof_length) as usize;
             if expected_len != 0xffffffff && out.len() != expected_len {
-                return Err(LtHashError::Blake2Error(format!(
-                    "Output length mismatch: expected {}, got {}",
-                    expected_len,
-                    out.len()
-                )));
+                return Err(LtHashError::OutputSizeMismatch {
+                    expected: expected_len,
+                    actual: out.len(),
+                });
             }
         }
 
@@ -241,8 +235,9 @@ impl Blake2xb {
             unsafe { crypto_generichash_blake2b_final(&mut self.state, h0.as_mut_ptr(), h0.len()) };
 
         if result != 0 {
+            h0.zeroize(); // Securely clear h0 on error
             return Err(LtHashError::Blake2Error(
-                "crypto_generichash_blake2b_final failed".to_string(),
+                "crypto_generichash_blake2b_final failed",
             ));
         }
 
@@ -284,8 +279,9 @@ impl Blake2xb {
             };
 
             if result != 0 {
+                h0.zeroize(); // Securely clear h0 on error
                 return Err(LtHashError::Blake2Error(
-                    "crypto_generichash_blake2b_update failed in expansion".to_string(),
+                    "crypto_generichash_blake2b_update failed in expansion",
                 ));
             }
 
@@ -299,14 +295,18 @@ impl Blake2xb {
             };
 
             if result != 0 {
+                h0.zeroize(); // Securely clear h0 on error
                 return Err(LtHashError::Blake2Error(
-                    "crypto_generichash_blake2b_final failed in expansion".to_string(),
+                    "crypto_generichash_blake2b_final failed in expansion",
                 ));
             }
 
             pos += len;
             remaining -= len;
         }
+
+        // Securely clear the intermediate hash value
+        h0.zeroize();
 
         self.finished = true;
         Ok(())
@@ -334,6 +334,7 @@ impl Blake2xb {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use = "this returns a Result that must be checked"]
     pub fn hash(
         out: &mut [u8],
         data: &[u8],
@@ -411,7 +412,7 @@ impl Blake2xb {
         if !key.is_empty() {
             if key.len() > 64 {
                 return Err(LtHashError::InvalidKeySize {
-                    expected: "0-64 bytes".to_string(),
+                    expected: "0-64 bytes",
                     actual: key.len(),
                 });
             }
@@ -424,9 +425,12 @@ impl Blake2xb {
                 crypto_generichash_blake2b_update(state, key_block.as_ptr(), key_block.len() as u64)
             };
 
+            // Securely clear the key block after use
+            key_block.zeroize();
+
             if result != 0 {
                 return Err(LtHashError::Blake2Error(
-                    "crypto_generichash_blake2b_update failed for key".to_string(),
+                    "crypto_generichash_blake2b_update failed for key",
                 ));
             }
         }

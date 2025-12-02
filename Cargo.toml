@@ -6,6 +6,11 @@ edition = "2021"
 [dependencies]
 libsodium-sys = { version = "0.2", optional = true }
 thiserror = "1.0"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+base64 = "0.22"
+
+[dev-dependencies]
+criterion = "0.5"
 
 [features]
 default = ["sodium"]
@@ -22,3 +27,11 @@ path = "src/bin/example.rs"
 [[bin]]
 name = "test_cross_compat"
 path = "src/bin/test_cross_compat.rs"
+
+[[bin]]
+name = "lthash"
+path = "src/bin/lthash_cli.rs"
+
+[[bench]]
+name = "lthash_bench"
+harness = false
