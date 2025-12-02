@@ -1,6 +1,7 @@
 //! LtHash Command Line Tool
 //!
 //! A Unix-friendly CLI for computing and combining LtHash checksums.
+//! Uses streaming to handle large files without loading them into memory.
 //!
 //! # Usage
 //!
@@ -25,7 +26,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
 use std::env;
 use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader};
 use std::process;
 
 const USAGE: &str = r#"lthash - Homomorphic hash tool
@@ -96,18 +97,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let file_arg = args.get(3).map(|s| s.as_str()).unwrap_or("-");
             cmd_sub(hash_arg, file_arg)
         }
-        file_arg => {
-            cmd_hash(file_arg)
-        }
+        file_arg => cmd_hash(file_arg),
     }
 }
 
-/// Hash a single file and output base64 encoded hash
+/// Hash a single file using streaming (no full file load into memory)
 fn cmd_hash(file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let data = read_file_data(file_arg)?;
-
     let mut hash = LtHash16_1024::new()?;
-    hash.add_object(&data)?;
+    hash_file_stream(&mut hash, file_arg, true)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
     println!("{}", encoded);
@@ -115,13 +112,12 @@ fn cmd_hash(file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Add a file's hash to an existing hash
+/// Add a file's hash to an existing hash using streaming
 fn cmd_add(hash_arg: &str, file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
     let existing_hash = read_hash(hash_arg)?;
-    let data = read_file_data(file_arg)?;
 
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
-    hash.add_object(&data)?;
+    hash_file_stream(&mut hash, file_arg, true)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
     println!("{}", encoded);
@@ -129,13 +125,12 @@ fn cmd_add(hash_arg: &str, file_arg: &str) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-/// Subtract a file's hash from an existing hash
+/// Subtract a file's hash from an existing hash using streaming
 fn cmd_sub(hash_arg: &str, file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
     let existing_hash = read_hash(hash_arg)?;
-    let data = read_file_data(file_arg)?;
 
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
-    hash.remove_object(&data)?;
+    hash_file_stream(&mut hash, file_arg, false)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
     println!("{}", encoded);
@@ -143,26 +138,37 @@ fn cmd_sub(hash_arg: &str, file_arg: &str) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-/// Read file data from a file path or stdin
-fn read_file_data(file_arg: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut data = Vec::new();
-
+/// Stream a file into the hash (add or remove based on `add` flag)
+fn hash_file_stream(
+    hash: &mut LtHash16_1024,
+    file_arg: &str,
+    add: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     if file_arg == "-" {
-        io::stdin().read_to_end(&mut data)?;
+        let stdin = io::stdin();
+        let reader = stdin.lock();
+        if add {
+            hash.add_object_stream(reader)?;
+        } else {
+            hash.remove_object_stream(reader)?;
+        }
     } else {
-        let file = File::open(file_arg)
-            .map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
-        let mut reader = BufReader::new(file);
-        reader.read_to_end(&mut data)?;
+        let file =
+            File::open(file_arg).map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
+        let reader = BufReader::new(file);
+        if add {
+            hash.add_object_stream(reader)?;
+        } else {
+            hash.remove_object_stream(reader)?;
+        }
     }
 
-    Ok(data)
+    Ok(())
 }
 
 /// Read and decode a hash from argument or stdin
 fn read_hash(hash_arg: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let hash_str = if hash_arg == "-" {
-        // Read hash from stdin (trim whitespace)
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
         input.trim().to_string()
@@ -170,21 +176,22 @@ fn read_hash(hash_arg: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         hash_arg.to_string()
     };
 
-    // Handle empty hash (start fresh)
     if hash_str.is_empty() {
         return Ok(vec![0u8; LtHash16_1024::checksum_size_bytes()]);
     }
 
-    // Decode URL-safe base64
-    let decoded = URL_SAFE_NO_PAD.decode(&hash_str)
+    let decoded = URL_SAFE_NO_PAD
+        .decode(&hash_str)
         .map_err(|e| format!("invalid base64 hash: {}", e))?;
 
     let expected_size = LtHash16_1024::checksum_size_bytes();
     if decoded.len() != expected_size {
         return Err(format!(
             "invalid hash size: expected {} bytes, got {} bytes",
-            expected_size, decoded.len()
-        ).into());
+            expected_size,
+            decoded.len()
+        )
+        .into());
     }
 
     Ok(decoded)

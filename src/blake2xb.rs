@@ -211,6 +211,57 @@ impl Blake2xb {
         Ok(())
     }
 
+    /// Update the hasher by streaming data from a reader.
+    ///
+    /// Reads data in chunks to avoid loading the entire input into memory.
+    /// Returns the total number of bytes read.
+    pub fn update_reader<R: std::io::Read>(
+        &mut self,
+        mut reader: R,
+    ) -> Result<u64, LtHashError> {
+        if !self.initialized {
+            return Err(LtHashError::NotInitialized {
+                method: "update_reader",
+            });
+        }
+        if self.finished {
+            return Err(LtHashError::AlreadyFinished {
+                method: "update_reader",
+            });
+        }
+
+        let mut buffer = [0u8; 8192];
+        let mut total_bytes = 0u64;
+
+        loop {
+            let bytes_read = reader
+                .read(&mut buffer)
+                .map_err(|_| LtHashError::Blake2Error("I/O error reading from stream"))?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            let result = unsafe {
+                crypto_generichash_blake2b_update(
+                    &mut self.state,
+                    buffer.as_ptr(),
+                    bytes_read as u64,
+                )
+            };
+
+            if result != 0 {
+                return Err(LtHashError::Blake2Error(
+                    "crypto_generichash_blake2b_update failed",
+                ));
+            }
+
+            total_bytes += bytes_read as u64;
+        }
+
+        Ok(total_bytes)
+    }
+
     pub fn finish(&mut self, out: &mut [u8]) -> Result<(), LtHashError> {
         if !self.initialized {
             return Err(LtHashError::NotInitialized { method: "finish" });

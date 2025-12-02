@@ -122,6 +122,44 @@ impl Blake3Xof {
         Ok(())
     }
 
+    /// Update the hasher by streaming data from a reader.
+    ///
+    /// Reads data in chunks to avoid loading the entire input into memory.
+    /// Returns the total number of bytes read.
+    pub fn update_reader<R: std::io::Read>(
+        &mut self,
+        mut reader: R,
+    ) -> Result<u64, LtHashError> {
+        let hasher = self.hasher.as_mut().ok_or(LtHashError::NotInitialized {
+            method: "update_reader",
+        })?;
+
+        if self.finished {
+            return Err(LtHashError::AlreadyFinished {
+                method: "update_reader",
+            });
+        }
+
+        // Use 8KB buffer - good balance for I/O and cache efficiency
+        let mut buffer = [0u8; 8192];
+        let mut total_bytes = 0u64;
+
+        loop {
+            let bytes_read = reader
+                .read(&mut buffer)
+                .map_err(|_| LtHashError::Blake2Error("I/O error reading from stream"))?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            hasher.update(&buffer[..bytes_read]);
+            total_bytes += bytes_read as u64;
+        }
+
+        Ok(total_bytes)
+    }
+
     /// Finalize and write output
     pub fn finish(&mut self, out: &mut [u8]) -> Result<(), LtHashError> {
         let hasher = self.hasher.as_ref().ok_or(LtHashError::NotInitialized {
