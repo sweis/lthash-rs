@@ -112,6 +112,10 @@ impl LtHash<B, N> {
     fn add_object_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
     fn remove_object_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
 
+    // Parallel operations (requires "parallel" feature)
+    fn add_objects_parallel(&mut self, objects: &[&[u8]]) -> Result<&mut Self, LtHashError>;
+    fn add_readers_parallel<R: Read + Send>(&mut self, readers: Vec<R>) -> Result<&mut Self, LtHashError>;
+
     fn try_add(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
     fn try_sub(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
 
@@ -138,6 +142,30 @@ LtHash is designed to be collision resistant in the random oracle model, with se
 LtHash16 is the fastest and smallest variant, providing over 200 bits of collision resistance which is sufficient for most use cases. LtHash20 and LtHash32 offer higher security margins at the cost of larger checksums.
 
 See: [Facebook's security analysis (IACR 2019/227)](https://eprint.iacr.org/2019/227)
+
+## Parallel Processing
+
+For hashing multiple files concurrently, enable the `parallel` feature:
+
+```toml
+[dependencies]
+lthash = { version = "0.1", features = ["parallel"] }
+```
+
+```rust
+use lthash::LtHash16_1024;
+use std::fs::File;
+
+// Hash multiple files in parallel
+let files: Vec<File> = vec![
+    File::open("file1.bin")?,
+    File::open("file2.bin")?,
+    File::open("file3.bin")?,
+];
+let hash = LtHash16_1024::from_readers_parallel(files)?;
+```
+
+Since LtHash is homomorphic, the order of operations doesn't matter, making parallel hashing safe. Speedup depends on object size - larger objects (>64KB) benefit most from parallelization.
 
 ## Folly Compatibility Mode
 

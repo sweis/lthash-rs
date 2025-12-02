@@ -71,6 +71,9 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 - **Streaming API** for large files: `add_object_stream()` / `remove_object_stream()`
   - Reads data in 8KB chunks, never loads entire file into memory
   - CLI uses streaming by default for all file operations
+- **Parallel hashing** (optional `parallel` feature): `add_objects_parallel()` / `add_readers_parallel()`
+  - Uses rayon for multi-threaded hashing of multiple files
+  - 1.5x speedup for 16x64KB objects (overhead makes it slower for small objects)
 
 ---
 
@@ -81,6 +84,7 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 default = ["blake3-backend"]
 blake3-backend = ["blake3"]      # Pure Rust, fast, no deps
 folly-compat = ["libsodium-sys"] # For Facebook Folly C++ compatibility
+parallel = ["rayon"]             # Enable parallel hashing
 ```
 
 ### Build Commands

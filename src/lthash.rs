@@ -75,6 +75,9 @@ use crate::error::LtHashError;
 use std::marker::PhantomData;
 use zeroize::Zeroize;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 /// LtHash instance with compile-time element size and count parameters
 ///
 /// This structure represents a homomorphic hash function with:
@@ -297,6 +300,120 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         self.hash_reader_into_scratch(reader)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
+    }
+
+    /// Hash multiple objects in parallel and add them to this hash.
+    ///
+    /// This method uses rayon to hash each object in a separate thread,
+    /// then combines all results. Since LtHash is homomorphic, the order
+    /// of addition doesn't matter, making this safe for parallel execution.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// let objects: Vec<&[u8]> = vec![b"file1", b"file2", b"file3"];
+    /// hash.add_objects_parallel(&objects).unwrap();
+    /// ```
+    #[cfg(feature = "parallel")]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn add_objects_parallel(&mut self, objects: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+        let key = self.key.clone();
+
+        // Hash each object in parallel, creating independent LtHash instances
+        let hashes: Result<Vec<Self>, LtHashError> = objects
+            .par_iter()
+            .map(|data| {
+                let mut h = Self::new()?;
+                if let Some(ref k) = key {
+                    h.key = Some(k.clone());
+                }
+                h.add_object(data)?;
+                Ok(h)
+            })
+            .collect();
+
+        // Combine all hashes into self
+        for h in hashes? {
+            Self::math_add(&mut self.checksum, &h.checksum)?;
+        }
+
+        Ok(self)
+    }
+
+    /// Hash multiple readers in parallel and add them to this hash.
+    ///
+    /// Each reader is processed in a separate thread using streaming,
+    /// so this is efficient for large files. The readers must implement
+    /// `Read + Send` to be safely shared across threads.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    /// use std::fs::File;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// let files: Vec<File> = vec![
+    ///     File::open("file1.bin").unwrap(),
+    ///     File::open("file2.bin").unwrap(),
+    ///     File::open("file3.bin").unwrap(),
+    /// ];
+    /// hash.add_readers_parallel(files).unwrap();
+    /// ```
+    #[cfg(feature = "parallel")]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn add_readers_parallel<R: std::io::Read + Send>(
+        &mut self,
+        readers: Vec<R>,
+    ) -> Result<&mut Self, LtHashError> {
+        let key = self.key.clone();
+
+        // Hash each reader in parallel using streaming
+        let hashes: Result<Vec<Self>, LtHashError> = readers
+            .into_par_iter()
+            .map(|reader| {
+                let mut h = Self::new()?;
+                if let Some(ref k) = key {
+                    h.key = Some(k.clone());
+                }
+                h.add_object_stream(reader)?;
+                Ok(h)
+            })
+            .collect();
+
+        // Combine all hashes into self
+        for h in hashes? {
+            Self::math_add(&mut self.checksum, &h.checksum)?;
+        }
+
+        Ok(self)
+    }
+
+    /// Create a new LtHash by hashing multiple objects in parallel.
+    ///
+    /// This is a convenience method equivalent to creating a new hash
+    /// and calling `add_objects_parallel`.
+    #[cfg(feature = "parallel")]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn from_objects_parallel(objects: &[&[u8]]) -> Result<Self, LtHashError> {
+        let mut hash = Self::new()?;
+        hash.add_objects_parallel(objects)?;
+        Ok(hash)
+    }
+
+    /// Create a new LtHash by hashing multiple readers in parallel.
+    ///
+    /// This is a convenience method equivalent to creating a new hash
+    /// and calling `add_readers_parallel`.
+    #[cfg(feature = "parallel")]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn from_readers_parallel<R: std::io::Read + Send>(
+        readers: Vec<R>,
+    ) -> Result<Self, LtHashError> {
+        let mut hash = Self::new()?;
+        hash.add_readers_parallel(readers)?;
+        Ok(hash)
     }
 
     #[must_use]
