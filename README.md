@@ -119,6 +119,20 @@ impl LtHash<B, N> {
 // Operators: +, -, +=, -= (panic on key mismatch)
 ```
 
+## Security
+
+LtHash is designed to be collision resistant in the random oracle model, with security based on the hardness of the [Short Integer Solutions (SIS)](https://en.wikipedia.org/wiki/Short_integer_solution_problem) lattice problem.
+
+| Variant | Checksum Size | Security Level |
+|---------|---------------|----------------|
+| LtHash16_1024 | 2 KB | **≥200 bits** (recommended) |
+| LtHash20_1008 | 2.6 KB | >200 bits |
+| LtHash32_1024 | 4 KB | >200 bits |
+
+LtHash16 is the fastest and smallest variant, providing over 200 bits of collision resistance which is sufficient for most use cases. LtHash20 and LtHash32 offer higher security margins at the cost of larger checksums.
+
+See: [Facebook's security analysis (IACR 2019/227)](https://eprint.iacr.org/2019/227)
+
 ## Folly Compatibility Mode
 
 If you need byte-for-byte compatibility with Facebook's Folly C++ implementation, use the `folly-compat` feature. This switches to Blake2xb (requires libsodium):
