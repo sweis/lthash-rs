@@ -2,6 +2,10 @@
 
 A Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses BLAKE3 by default for high performance, with optional Blake2xb backend for [Folly C++ compatibility](https://github.com/facebook/folly/tree/main/folly/crypto).
 
+## Warning
+
+This is vibe coded by Claude Code. A human has not really even looked at it. But it passes the tests and generates the same bytes as the Facebook Folly C++ implementation. Don't trust it or use it for anything as is. It was just done for fun.
+
 ## Features
 
 - **Homomorphic hashing**: `H(A ∪ B) = H(A) + H(B)` — add/remove elements without rehashing
