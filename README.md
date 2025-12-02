@@ -1,27 +1,22 @@
 # LtHash-rs
 
-A Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash) with Blake2xb, compatible with the [Folly C++ implementation](https://github.com/facebook/folly/tree/main/folly/crypto).
-
-> **Warning**: This was vibe-coded by Claude. It passes tests and matches the C++ implementation byte-for-byte, but use at your own risk.
+A Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses BLAKE3 by default for high performance, with optional Blake2xb backend for [Folly C++ compatibility](https://github.com/facebook/folly/tree/main/folly/crypto).
 
 ## Features
 
 - **Homomorphic hashing**: `H(A ∪ B) = H(A) + H(B)` — add/remove elements without rehashing
 - **Three variants**: LtHash16 (2KB), LtHash20 (2.6KB), LtHash32 (4KB) checksums
+- **Pure Rust**: No C dependencies by default (BLAKE3 backend)
+- **Fast**: BLAKE3 is 6-16x faster than Blake2xb
 - **CLI tool** with Unix piping support
-- **C++ compatible**: Identical output to Facebook Folly
 
 ## Installation
 
-Requires libsodium:
-
 ```bash
-# macOS
-brew install libsodium
-
-# Ubuntu/Debian
-sudo apt-get install libsodium-dev
+cargo add lthash
 ```
+
+No system dependencies required. Just works.
 
 ## CLI Usage
 
@@ -111,11 +106,30 @@ impl LtHash<B, N> {
 // Operators: +, -, +=, -= (panic on key mismatch)
 ```
 
+## Folly Compatibility Mode
+
+If you need byte-for-byte compatibility with Facebook's Folly C++ implementation, use the `folly-compat` feature. This switches to Blake2xb (requires libsodium):
+
+```bash
+# Install libsodium
+brew install libsodium        # macOS
+sudo apt install libsodium-dev # Ubuntu/Debian
+
+# Build with Folly compatibility
+cargo build --features folly-compat
+
+# Run compatibility tests
+cargo test --features folly-compat
+cargo run --bin test_cross_compat --features folly-compat
+```
+
+Note: The default BLAKE3 backend produces different output than Folly. Use `folly-compat` only if you need to interoperate with existing Folly-based systems.
+
 ## Testing
 
 ```bash
-cargo test
-cargo run --bin test_cross_compat  # Verify C++ compatibility
+cargo test                    # Test with BLAKE3 (default)
+cargo test --features folly-compat  # Test with Blake2xb
 ```
 
 ## References
