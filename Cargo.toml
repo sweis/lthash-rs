@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 libsodium-sys = { version = "0.2", optional = true }
+blake3 = { version = "1.5", optional = true }
 thiserror = "1.0"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 base64 = "0.22"
@@ -15,6 +16,7 @@ criterion = "0.5"
 [features]
 default = ["sodium"]
 sodium = ["libsodium-sys"]
+blake3-backend = ["blake3"]
 
 [lib]
 name = "lthash"
@@ -23,14 +25,17 @@ path = "src/lib.rs"
 [[bin]]
 name = "lthash_example"
 path = "src/bin/example.rs"
+required-features = ["sodium"]
 
 [[bin]]
 name = "test_cross_compat"
 path = "src/bin/test_cross_compat.rs"
+required-features = ["sodium"]
 
 [[bin]]
 name = "lthash"
 path = "src/bin/lthash_cli.rs"
+# Works with either backend (uses LtHash, not Blake2xb directly)
 
 [[bench]]
 name = "lthash_bench"

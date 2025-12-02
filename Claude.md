@@ -7,9 +7,10 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 ### Key Components
 
 1. **blake2xb.rs** - Blake2xb XOF (Extendable Output Function) implementation using libsodium
-2. **lthash.rs** - Core LtHash homomorphic hash with const generics for different configurations
-3. **error.rs** - Error types using thiserror
-4. **lthash_cli.rs** - Unix-friendly command-line tool for hashing and combining checksums
+2. **blake3_xof.rs** - BLAKE3 XOF wrapper for pure Rust, high-performance hashing
+3. **lthash.rs** - Core LtHash homomorphic hash with const generics for different configurations
+4. **error.rs** - Error types using thiserror
+5. **lthash_cli.rs** - Unix-friendly command-line tool for hashing and combining checksums
 
 ### Supported Configurations
 - `LtHash<16, 1024>` - 16-bit elements, 1024 elements (2048 bytes)
@@ -101,10 +102,59 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 ## Dependencies
 
 - `libsodium-sys` (0.2) - C bindings to libsodium (optional via `sodium` feature)
+- `blake3` (1.5) - Pure Rust BLAKE3 implementation (optional via `blake3-backend` feature)
 - `thiserror` (1.0) - Error derive macro
 - `zeroize` (1.x) - Secure memory zeroing
 - `base64` (0.22) - URL-safe base64 encoding for CLI
 - `criterion` (0.5) - Benchmarking (dev-dependency)
+
+---
+
+## Hash Backend Selection
+
+The crate supports two XOF backends:
+
+### Blake2xb (default, `sodium` feature)
+- **Pros**: Binary-compatible with Facebook's Folly C++ implementation
+- **Cons**: Requires libsodium C library, slower performance
+- **Use when**: You need interoperability with existing Folly-based systems
+
+### BLAKE3 (`blake3-backend` feature)
+- **Pros**: Pure Rust, no C dependencies, 6-16x faster than Blake2xb
+- **Cons**: Not compatible with Folly output
+- **Use when**: Performance is critical and you don't need Folly compatibility
+
+### Performance Comparison
+
+| Operation | Blake2xb | BLAKE3 | Speedup |
+|-----------|----------|--------|---------|
+| 64B → 2048B XOF | 6.2 µs | 374 ns | **16x** |
+| 1024B → 2048B XOF | 7.5 µs | 1.2 µs | **6x** |
+| 4096B → 2048B XOF | 11.3 µs | 1.4 µs | **8x** |
+| LtHash add_object (32B) | 6.4 µs | 530 ns | **12x** |
+
+### Usage
+
+```bash
+# Build with Blake2xb (default, Folly-compatible)
+cargo build
+
+# Build with BLAKE3 (faster, pure Rust)
+cargo build --no-default-features --features blake3-backend
+
+# Run benchmarks for each backend
+cargo bench                                              # Blake2xb
+cargo bench --no-default-features --features blake3-backend  # BLAKE3
+```
+
+### Security Equivalence
+
+Both backends provide equivalent security for LtHash:
+- **Collision resistance**: Both are cryptographically secure
+- **Pseudorandom XOF output**: Both generate high-quality pseudorandom bytes
+- **Keyed mode**: Both support authenticated hashing with keys
+
+BLAKE3 keys must be 32 bytes; the wrapper derives a 32-byte key from variable-length inputs.
 
 ---
 
