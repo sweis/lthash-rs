@@ -104,8 +104,13 @@ impl LtHash<B, N> {
     fn new() -> Result<Self, LtHashError>;
     fn with_checksum(checksum: &[u8]) -> Result<Self, LtHashError>;
 
+    // In-memory operations
     fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
     fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
+
+    // Streaming operations (for large files)
+    fn add_object_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
+    fn remove_object_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
 
     fn try_add(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
     fn try_sub(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking

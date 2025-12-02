@@ -141,3 +141,48 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
 
     Ok(())
 }
+
+#[test]
+fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
+    // Test that streaming produces identical results to in-memory hashing
+    let data = b"The quick brown fox jumps over the lazy dog. ".repeat(1000);
+
+    // Hash using in-memory method
+    let mut hash_mem = LtHash16_1024::new()?;
+    hash_mem.add_object(&data)?;
+
+    // Hash using streaming method
+    let mut hash_stream = LtHash16_1024::new()?;
+    hash_stream.add_object_stream(std::io::Cursor::new(&data))?;
+
+    assert_eq!(
+        hash_mem.get_checksum(),
+        hash_stream.get_checksum(),
+        "Streaming and in-memory hashing produced different results"
+    );
+
+    // Also test remove_object_stream
+    let mut hash_mem2 = LtHash16_1024::new()?;
+    hash_mem2.add_object(&data)?;
+    hash_mem2.remove_object(&data)?;
+
+    let mut hash_stream2 = LtHash16_1024::new()?;
+    hash_stream2.add_object_stream(std::io::Cursor::new(&data))?;
+    hash_stream2.remove_object_stream(std::io::Cursor::new(&data))?;
+
+    assert_eq!(
+        hash_mem2.get_checksum(),
+        hash_stream2.get_checksum(),
+        "Streaming remove produced different results"
+    );
+
+    // Both should be back to zero (empty set)
+    let empty_hash = LtHash16_1024::new()?;
+    assert_eq!(
+        hash_stream2.get_checksum(),
+        empty_hash.get_checksum(),
+        "add then remove should equal empty hash"
+    );
+
+    Ok(())
+}

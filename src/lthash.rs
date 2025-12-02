@@ -259,6 +259,46 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
+    /// Add an object to the hash by streaming from a reader.
+    ///
+    /// This is the preferred method for large files as it processes data in
+    /// chunks without loading the entire file into memory.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    /// use std::fs::File;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// let file = File::open("large_file.bin").unwrap();
+    /// hash.add_object_stream(file).unwrap();
+    /// ```
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn add_object_stream<R: std::io::Read>(
+        &mut self,
+        reader: R,
+    ) -> Result<&mut Self, LtHashError> {
+        self.scratch.fill(0);
+        self.hash_reader_into_scratch(reader)?;
+        Self::math_add(&mut self.checksum, &self.scratch)?;
+        Ok(self)
+    }
+
+    /// Remove an object from the hash by streaming from a reader.
+    ///
+    /// This is the preferred method for large files as it processes data in
+    /// chunks without loading the entire file into memory.
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn remove_object_stream<R: std::io::Read>(
+        &mut self,
+        reader: R,
+    ) -> Result<&mut Self, LtHashError> {
+        self.scratch.fill(0);
+        self.hash_reader_into_scratch(reader)?;
+        Self::math_subtract(&mut self.checksum, &self.scratch)?;
+        Ok(self)
+    }
+
     #[must_use]
     pub fn get_checksum(&self) -> &[u8] {
         &self.checksum
@@ -310,6 +350,44 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         } else {
             Blake2xb::hash(&mut self.scratch, data, &[], &[], &[])?;
         }
+
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut self.scratch);
+        }
+
+        Ok(())
+    }
+
+    /// Stream data from a reader into the scratch buffer (BLAKE3 backend)
+    #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+    fn hash_reader_into_scratch<R: std::io::Read>(
+        &mut self,
+        reader: R,
+    ) -> Result<(), LtHashError> {
+        let mut xof = Blake3Xof::new();
+        let key = self.key.as_deref().unwrap_or(&[]);
+        xof.init(self.scratch.len(), key, &[], &[])?;
+        xof.update_reader(reader)?;
+        xof.finish(&mut self.scratch)?;
+
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut self.scratch);
+        }
+
+        Ok(())
+    }
+
+    /// Stream data from a reader into the scratch buffer (Blake2xb backend)
+    #[cfg(feature = "folly-compat")]
+    fn hash_reader_into_scratch<R: std::io::Read>(
+        &mut self,
+        reader: R,
+    ) -> Result<(), LtHashError> {
+        let mut xof = Blake2xb::new();
+        let key = self.key.as_deref().unwrap_or(&[]);
+        xof.init(self.scratch.len(), key, &[], &[])?;
+        xof.update_reader(reader)?;
+        xof.finish(&mut self.scratch)?;
 
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
