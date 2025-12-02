@@ -17,86 +17,65 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
 
 ---
 
-## Security Analysis
+## Applied Security Fixes (Quick Wins)
 
-### Current Security Measures
+The following high-impact, low-effort fixes have been applied:
+
+### 1. Added `zeroize` crate for secure memory clearing
+- **File**: `Cargo.toml`
+- Added `zeroize = { version = "1", features = ["zeroize_derive"] }` dependency
+
+### 2. Fixed unsafe alignment in `as_u64_slice` functions
+- **File**: `lthash.rs:429-451`
+- Changed from direct pointer casts to using `align_to()` which properly handles alignment
+- Added assertions to catch any alignment issues at runtime
+
+### 3. Implemented secure zeroing for sensitive data
+- **File**: `lthash.rs:174-180` - Key material now uses `zeroize()` instead of `fill(0)`
+- **File**: `blake2xb.rs:245,289,305,316` - Intermediate hash `h0` is securely zeroed on all exit paths
+- **File**: `blake2xb.rs:434-435` - Key block is securely zeroed after use
+
+### 4. Added `#[must_use]` attributes to key methods
+- **File**: `lthash.rs` - Added to `new()`, `with_checksum()`, `set_key()`, `add_object()`, `remove_object()`, `get_checksum()`, `checksum_equals()`
+- **File**: `blake2xb.rs` - Added to `hash()`
+
+---
+
+## Current Security Measures
+
 1. Constant-time comparison in `checksum_equals()` and `PartialEq`
-2. Key clearing on `clear_key()` and `Drop`
-3. Padding bit validation for 20-bit variant
-4. Key size validation (16-64 bytes)
+2. **Secure key clearing** using `zeroize` crate (won't be optimized away)
+3. **Secure clearing of intermediate hash values** (`h0`, `key_block`)
+4. Padding bit validation for 20-bit variant
+5. Key size validation (16-64 bytes)
+6. **Safe alignment handling** using `align_to()` instead of raw pointer casts
 
-### Security Issues Found
+---
 
-#### HIGH PRIORITY
+## Remaining Issues
 
-1. **Unsafe pointer casts without alignment checks** (`lthash.rs:427-435`)
-   ```rust
-   fn as_u64_slice(bytes: &[u8]) -> &[u64] {
-       assert_eq!(bytes.len() % 8, 0);
-       unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u64, bytes.len() / 8) }
-   }
-   ```
-   **Problem**: `Vec<u8>` is not guaranteed to be 8-byte aligned. This is undefined behavior on platforms with strict alignment requirements and can cause crashes or data corruption.
+### MEDIUM PRIORITY
 
-   **Fix**: Use `align_to()` or copy data to aligned buffer.
-
-2. **Key material not securely zeroed** (`lthash.rs:174-178`)
-   ```rust
-   pub fn clear_key(&mut self) {
-       if let Some(mut key) = self.key.take() {
-           key.fill(0);  // Compiler may optimize this away
-       }
-   }
-   ```
-   **Problem**: The compiler can optimize away `fill(0)` since the vector is immediately dropped. Use a secure zeroing function that won't be optimized out.
-
-   **Fix**: Use `zeroize` crate or `std::ptr::write_volatile`.
-
-3. **Intermediate hash output h0 not cleared** (`blake2xb.rs:239-247`)
-   ```rust
-   let mut h0 = [0u8; 64];
-   // ... used for expansion ...
-   // h0 is not securely zeroed before going out of scope
-   ```
-   **Problem**: Sensitive intermediate hash values remain in memory.
-
-   **Fix**: Zero h0 before function returns.
-
-4. **Key block not cleared after use** (`blake2xb.rs:419-425`)
-   ```rust
-   let mut key_block = [0u8; 128];
-   key_block[..key.len()].copy_from_slice(key);
-   // ... key_block is not zeroed after use
-   ```
-
-#### MEDIUM PRIORITY
-
-5. **Blake2xb state not cleared on finish** (`blake2xb.rs:311-312`)
+1. **Blake2xb state not cleared on finish** (`blake2xb.rs`)
    - The internal state structure may contain sensitive material after hashing completes.
+   - Consider implementing `Zeroize` on `Drop` for `Blake2xb`
 
-6. **No Zeroize on Drop for Blake2xb**
-   - The hasher state persists until the struct is dropped and memory is reused.
-
-7. **Checksum Vec<u8> not securely cleared on drop for LtHash**
+2. **Checksum Vec<u8> not securely cleared on drop for LtHash**
    - Only the key is cleared, not the checksum which could contain sensitive data.
+   - Could add `ZeroizeOnDrop` derive if checksums are considered sensitive
 
-#### LOW PRIORITY
+### LOW PRIORITY
 
-8. **Panic in operator overloads** (`lthash.rs:509-511`)
-   ```rust
-   fn add_assign(&mut self, rhs: Self) {
-       if !self.keys_equal(&rhs) {
-           panic!("Cannot add LtHashes with different keys");
-       }
-   ```
-   **Problem**: Panics in library code are generally discouraged. Consider returning Result.
+3. **Panic in operator overloads** (`lthash.rs`)
+   - `AddAssign` and `SubAssign` panic if keys don't match
+   - Consider adding `try_add`, `try_sub` methods that return Result
 
-9. **Default trait panics on error** (`lthash.rs:487-490`)
-   ```rust
-   fn default() -> Self {
-       Self::new().expect("Failed to create default LtHash")
-   }
-   ```
+4. **Default trait panics on error** (`lthash.rs`)
+   - Could fail silently if compile_time_checks() fails
+
+5. **Error types use String allocation** (`error.rs`)
+   - `InvalidKeySize { expected: String, ... }` allocates on error path
+   - Could use `&'static str` or an enum
 
 ---
 
@@ -117,78 +96,12 @@ This is a Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Ha
    - Would benefit from aligned allocator for checksum buffer
 
 3. **Avoid repeated allocations**
-   - `hash_object` allocates a new `Vec` on each call (`lthash.rs:185`)
+   - `hash_object` allocates a new `Vec` on each call (`lthash.rs:190`)
    - Could pre-allocate or use a scratch buffer in the struct
 
 4. **Const generic optimization**
    - `compile_time_checks()` runs at runtime but could be `const fn`
    - Move more validation to compile time
-
----
-
-## Reliability Analysis
-
-### Issues Found
-
-1. **No input validation on `with_checksum`**
-   - Only checks size and padding, not that it's a valid checksum
-   - This is probably intentional for use cases like persistence
-
-2. **Error types use String allocation** (`error.rs`)
-   - `InvalidKeySize { expected: String, ... }` allocates on error path
-   - Could use `&'static str` or an enum
-
-3. **Missing `#[must_use]` attributes**
-   - Return values from `add_object`, `remove_object` should be checked
-
-4. **No bounds checking on element count** (`lthash.rs:135-140`)
-   - Only checks `N <= 999`, could add upper bound
-
----
-
-## Recommended Improvements (Prioritized by Impact/Effort)
-
-### Quick Wins (High Impact, Low Effort)
-
-1. **Use `zeroize` crate for secure key clearing**
-   ```toml
-   zeroize = { version = "1", features = ["zeroize_derive"] }
-   ```
-   Derive `Zeroize` and `ZeroizeOnDrop` for sensitive fields.
-
-2. **Fix alignment issue with `align_to`**
-   ```rust
-   fn as_u64_slice(bytes: &[u8]) -> &[u64] {
-       let (prefix, aligned, suffix) = unsafe { bytes.align_to::<u64>() };
-       assert!(prefix.is_empty() && suffix.is_empty());
-       aligned
-   }
-   ```
-
-3. **Add `#[must_use]` attributes**
-   ```rust
-   #[must_use]
-   pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>
-   ```
-
-### Medium Effort
-
-4. **Add feature-gated SIMD support**
-   - Optional AVX2 acceleration for x86_64
-   - Benchmark to verify improvement
-
-5. **Pre-allocate scratch buffer**
-   - Add `scratch: Vec<u8>` field to LtHash
-   - Reuse for `hash_object` calls
-
-### Lower Priority
-
-6. **Make panic-free API alternative**
-   - Add `try_add`, `try_sub` methods that return Result
-
-7. **Add fuzzing tests**
-   - Important for cryptographic code
-   - Use `cargo-fuzz` with arbitrary inputs
 
 ---
 
@@ -213,6 +126,7 @@ Missing tests:
 
 - `libsodium-sys` (0.2) - C bindings to libsodium (optional via `sodium` feature)
 - `thiserror` (1.0) - Error derive macro
+- `zeroize` (1.x) - Secure memory zeroing
 
 Minimal dependency footprint is good for security-critical code.
 
@@ -220,10 +134,10 @@ Minimal dependency footprint is good for security-critical code.
 
 ## Summary
 
-The implementation is functional and matches the Facebook Folly C++ implementation. The main concerns are:
+The implementation is functional and matches the Facebook Folly C++ implementation. The quick wins have been applied:
 
-1. **Alignment UB** - The unsafe u64 casts could cause issues on some platforms
-2. **Key material handling** - Not using secure zeroing methods
-3. **Missing zeroize** - Sensitive data persists in memory
+- **Alignment safety** - Fixed with `align_to()`
+- **Secure key/data clearing** - Using `zeroize` crate
+- **API safety** - Added `#[must_use]` attributes
 
-These can be addressed with minimal code changes by adding the `zeroize` crate and fixing the alignment handling.
+All tests pass including cross-compatibility tests with C++ reference implementation.

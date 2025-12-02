@@ -34,6 +34,7 @@
 use crate::error::LtHashError;
 use std::mem;
 use std::ptr;
+use zeroize::Zeroize;
 
 #[cfg(feature = "sodium")]
 use libsodium_sys::*;
@@ -241,6 +242,7 @@ impl Blake2xb {
             unsafe { crypto_generichash_blake2b_final(&mut self.state, h0.as_mut_ptr(), h0.len()) };
 
         if result != 0 {
+            h0.zeroize(); // Securely clear h0 on error
             return Err(LtHashError::Blake2Error(
                 "crypto_generichash_blake2b_final failed".to_string(),
             ));
@@ -284,6 +286,7 @@ impl Blake2xb {
             };
 
             if result != 0 {
+                h0.zeroize(); // Securely clear h0 on error
                 return Err(LtHashError::Blake2Error(
                     "crypto_generichash_blake2b_update failed in expansion".to_string(),
                 ));
@@ -299,6 +302,7 @@ impl Blake2xb {
             };
 
             if result != 0 {
+                h0.zeroize(); // Securely clear h0 on error
                 return Err(LtHashError::Blake2Error(
                     "crypto_generichash_blake2b_final failed in expansion".to_string(),
                 ));
@@ -307,6 +311,9 @@ impl Blake2xb {
             pos += len;
             remaining -= len;
         }
+
+        // Securely clear the intermediate hash value
+        h0.zeroize();
 
         self.finished = true;
         Ok(())
@@ -334,6 +341,7 @@ impl Blake2xb {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use = "this returns a Result that must be checked"]
     pub fn hash(
         out: &mut [u8],
         data: &[u8],
@@ -423,6 +431,9 @@ impl Blake2xb {
             let result = unsafe {
                 crypto_generichash_blake2b_update(state, key_block.as_ptr(), key_block.len() as u64)
             };
+
+            // Securely clear the key block after use
+            key_block.zeroize();
 
             if result != 0 {
                 return Err(LtHashError::Blake2Error(

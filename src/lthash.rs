@@ -70,6 +70,7 @@
 use crate::blake2xb::Blake2xb;
 use crate::error::LtHashError;
 use std::marker::PhantomData;
+use zeroize::Zeroize;
 
 /// LtHash instance with compile-time element size and count parameters
 ///
@@ -91,6 +92,7 @@ pub struct LtHash<const B: usize, const N: usize> {
 }
 
 impl<const B: usize, const N: usize> LtHash<B, N> {
+    #[must_use = "this returns a Result that must be checked"]
     pub fn new() -> Result<Self, LtHashError> {
         Self::compile_time_checks()?;
 
@@ -107,6 +109,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         })
     }
 
+    #[must_use = "this returns a Result that must be checked"]
     pub fn with_checksum(initial_checksum: &[u8]) -> Result<Self, LtHashError> {
         Self::compile_time_checks()?;
 
@@ -147,7 +150,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         }
 
         let elements_per_u64 = Self::elements_per_u64();
-        if N % elements_per_u64 != 0 {
+        if !N.is_multiple_of(elements_per_u64) {
             return Err(LtHashError::InvalidChecksumSize {
                 expected: 0, // Will show proper divisibility requirement
                 actual: N,
@@ -157,6 +160,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(())
     }
 
+    #[must_use = "this returns a Result that must be checked"]
     pub fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError> {
         if key.len() < 16 || key.len() > 64 {
             return Err(LtHashError::InvalidKeySize {
@@ -171,16 +175,18 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     }
 
     pub fn clear_key(&mut self) {
-        if let Some(mut key) = self.key.take() {
-            // Securely zero the key
-            key.fill(0);
+        if let Some(ref mut key) = self.key {
+            // Securely zero the key using zeroize (won't be optimized away)
+            key.zeroize();
         }
+        self.key = None;
     }
 
     pub fn reset(&mut self) {
         self.checksum.fill(0);
     }
 
+    #[must_use = "this returns a Result that must be checked"]
     pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
         let mut hash_output = vec![0u8; Self::checksum_size_bytes()];
         self.hash_object(&mut hash_output, data)?;
@@ -188,6 +194,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
+    #[must_use = "this returns a Result that must be checked"]
     pub fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
         let mut hash_output = vec![0u8; Self::checksum_size_bytes()];
         self.hash_object(&mut hash_output, data)?;
@@ -195,10 +202,12 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
+    #[must_use]
     pub fn get_checksum(&self) -> &[u8] {
         &self.checksum
     }
 
+    #[must_use = "this returns a Result that must be checked"]
     pub fn checksum_equals(&self, other_checksum: &[u8]) -> Result<bool, LtHashError> {
         if other_checksum.len() != Self::checksum_size_bytes() {
             return Err(LtHashError::InvalidChecksumSize {
@@ -426,12 +435,26 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     fn as_u64_slice(bytes: &[u8]) -> &[u64] {
         assert_eq!(bytes.len() % 8, 0);
-        unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u64, bytes.len() / 8) }
+        // SAFETY: We use align_to which handles alignment properly.
+        // The prefix/suffix being empty is asserted to catch any alignment issues.
+        let (prefix, aligned, suffix) = unsafe { bytes.align_to::<u64>() };
+        assert!(
+            prefix.is_empty() && suffix.is_empty(),
+            "Buffer is not properly aligned for u64 access"
+        );
+        aligned
     }
 
     fn as_u64_slice_mut(bytes: &mut [u8]) -> &mut [u64] {
         assert_eq!(bytes.len() % 8, 0);
-        unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut u64, bytes.len() / 8) }
+        // SAFETY: We use align_to_mut which handles alignment properly.
+        // The prefix/suffix being empty is asserted to catch any alignment issues.
+        let (prefix, aligned, suffix) = unsafe { bytes.align_to_mut::<u64>() };
+        assert!(
+            prefix.is_empty() && suffix.is_empty(),
+            "Buffer is not properly aligned for u64 access"
+        );
+        aligned
     }
 
     fn check_padding_bits(data: &[u8]) -> Result<(), LtHashError> {
