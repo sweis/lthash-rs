@@ -93,6 +93,66 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
     Ok(())
 }
 
+/// Test BLAKE3-based LtHash against fixed test vectors to detect regressions
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+#[test]
+fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
+    use lthash::{LtHash20_1008, LtHash32_1024};
+
+    // Test LtHash16_1024
+    for vector in test_vectors::blake3_lthash::LTHASH_16_1024_VECTORS.iter() {
+        let mut hash = LtHash16_1024::new()?;
+        if !vector.input.is_empty() {
+            hash.add_object(vector.input)?;
+        }
+        let result: String = hash.get_checksum()[..16]
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        assert_eq!(
+            result, vector.expected_first_16_bytes,
+            "LtHash16_1024 failed for input {:?}",
+            vector.name
+        );
+    }
+
+    // Test LtHash20_1008
+    for vector in test_vectors::blake3_lthash::LTHASH_20_1008_VECTORS.iter() {
+        let mut hash = LtHash20_1008::new()?;
+        if !vector.input.is_empty() {
+            hash.add_object(vector.input)?;
+        }
+        let result: String = hash.get_checksum()[..16]
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        assert_eq!(
+            result, vector.expected_first_16_bytes,
+            "LtHash20_1008 failed for input {:?}",
+            vector.name
+        );
+    }
+
+    // Test LtHash32_1024
+    for vector in test_vectors::blake3_lthash::LTHASH_32_1024_VECTORS.iter() {
+        let mut hash = LtHash32_1024::new()?;
+        if !vector.input.is_empty() {
+            hash.add_object(vector.input)?;
+        }
+        let result: String = hash.get_checksum()[..16]
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        assert_eq!(
+            result, vector.expected_first_16_bytes,
+            "LtHash32_1024 failed for input {:?}",
+            vector.name
+        );
+    }
+
+    Ok(())
+}
+
 #[test]
 fn test_homomorphic_properties() -> Result<(), LtHashError> {
     // Test commutativity: a+b == b+a

@@ -246,3 +246,118 @@ pub mod lthash {
         },
     ];
 }
+
+/// BLAKE3-based LtHash test vectors (default backend)
+///
+/// These vectors are used to detect regressions when using the BLAKE3 backend.
+/// Note: BLAKE3 produces different output than Blake2xb/Folly.
+pub mod blake3_lthash {
+    #[derive(Debug, Clone)]
+    pub struct TestVector {
+        pub name: &'static str,
+        pub input: &'static [u8],
+        pub expected_first_16_bytes: &'static str, // hex encoded first 16 bytes
+    }
+
+    /// BLAKE3-based LtHash<16, 1024> test vectors
+    pub const LTHASH_16_1024_VECTORS: &[TestVector] = &[
+        TestVector {
+            name: "empty",
+            input: b"",
+            expected_first_16_bytes: "00000000000000000000000000000000",
+        },
+        TestVector {
+            name: "a",
+            input: b"a",
+            expected_first_16_bytes: "17762fddd969a453925d65717ac3eea2",
+        },
+        TestVector {
+            name: "b",
+            input: b"b",
+            expected_first_16_bytes: "10e5cf3d3c8a4f9f3468c8cc58eea848",
+        },
+        TestVector {
+            name: "test",
+            input: b"test",
+            expected_first_16_bytes: "4878ca0425c739fa427f7eda20fe845f",
+        },
+        TestVector {
+            name: "hello",
+            input: b"hello",
+            expected_first_16_bytes: "ea8f163db38682925e4491c5e58d4bb3",
+        },
+        TestVector {
+            name: "hello_world",
+            input: b"hello world",
+            expected_first_16_bytes: "d74981efa70a0c880b8d8c1985d075db",
+        },
+    ];
+
+    /// BLAKE3-based LtHash<20, 1008> test vectors
+    pub const LTHASH_20_1008_VECTORS: &[TestVector] = &[
+        TestVector {
+            name: "empty",
+            input: b"",
+            expected_first_16_bytes: "00000000000000000000000000000000",
+        },
+        TestVector {
+            name: "a",
+            input: b"a",
+            expected_first_16_bytes: "17762fddd969a413925d65717ac1ee22",
+        },
+        TestVector {
+            name: "b",
+            input: b"b",
+            expected_first_16_bytes: "10e5cf3d3c884f1f3468c8cc58eca808",
+        },
+        TestVector {
+            name: "test",
+            input: b"test",
+            expected_first_16_bytes: "4878ca0425c5393a427f6eda20fc841f",
+        },
+        TestVector {
+            name: "hello",
+            input: b"hello",
+            expected_first_16_bytes: "ea8f063db38482125e4481c5e58d4b33",
+        },
+        TestVector {
+            name: "hello_world",
+            input: b"hello world",
+            expected_first_16_bytes: "d74981efa7080c080b8d8c1985d0751b",
+        },
+    ];
+
+    /// BLAKE3-based LtHash<32, 1024> test vectors
+    pub const LTHASH_32_1024_VECTORS: &[TestVector] = &[
+        TestVector {
+            name: "empty",
+            input: b"",
+            expected_first_16_bytes: "00000000000000000000000000000000",
+        },
+        TestVector {
+            name: "a",
+            input: b"a",
+            expected_first_16_bytes: "17762fddd969a453925d65717ac3eea2",
+        },
+        TestVector {
+            name: "b",
+            input: b"b",
+            expected_first_16_bytes: "10e5cf3d3c8a4f9f3468c8cc58eea848",
+        },
+        TestVector {
+            name: "test",
+            input: b"test",
+            expected_first_16_bytes: "4878ca0425c739fa427f7eda20fe845f",
+        },
+        TestVector {
+            name: "hello",
+            input: b"hello",
+            expected_first_16_bytes: "ea8f163db38682925e4491c5e58d4bb3",
+        },
+        TestVector {
+            name: "hello_world",
+            input: b"hello world",
+            expected_first_16_bytes: "d74981efa70a0c880b8d8c1985d075db",
+        },
+    ];
+}
