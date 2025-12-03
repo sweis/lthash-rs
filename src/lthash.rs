@@ -67,7 +67,7 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
-#[cfg(feature = "blake3-backend")]
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
 use crate::blake3_xof::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 use crate::blake2xb::Blake2xb;
