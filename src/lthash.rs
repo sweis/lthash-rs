@@ -430,78 +430,49 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(constant_time_eq(&self.checksum, other_checksum))
     }
 
-    /// Hash object directly into the pre-allocated scratch buffer (BLAKE3 backend, default)
-    ///
-    /// Uses BLAKE3 XOF for high-performance hashing. This is the default backend.
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
     fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
-        if let Some(ref key) = self.key {
-            Blake3Xof::hash(&mut self.scratch, data, key, &[], &[])?;
-        } else {
-            Blake3Xof::hash(&mut self.scratch, data, &[], &[], &[])?;
-        }
-
+        let key = self.key.as_deref().unwrap_or(&[]);
+        Blake3Xof::hash(&mut self.scratch, data, key, &[], &[])?;
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
-    /// Hash object directly into the pre-allocated scratch buffer (Blake2xb backend)
-    ///
-    /// Uses Blake2xb for compatibility with Facebook's Folly C++ implementation.
-    /// Enable with `--features folly-compat`.
     #[cfg(feature = "folly-compat")]
     fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
-        if let Some(ref key) = self.key {
-            Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;
-        } else {
-            Blake2xb::hash(&mut self.scratch, data, &[], &[], &[])?;
-        }
-
+        let key = self.key.as_deref().unwrap_or(&[]);
+        Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
-    /// Stream data from a reader into the scratch buffer (BLAKE3 backend)
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
-    fn hash_reader_into_scratch<R: std::io::Read>(
-        &mut self,
-        reader: R,
-    ) -> Result<(), LtHashError> {
+    fn hash_reader_into_scratch<R: std::io::Read>(&mut self, reader: R) -> Result<(), LtHashError> {
         let mut xof = Blake3Xof::new();
         let key = self.key.as_deref().unwrap_or(&[]);
         xof.init(self.scratch.len(), key, &[], &[])?;
         xof.update_reader(reader)?;
         xof.finish(&mut self.scratch)?;
-
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
-    /// Stream data from a reader into the scratch buffer (Blake2xb backend)
     #[cfg(feature = "folly-compat")]
-    fn hash_reader_into_scratch<R: std::io::Read>(
-        &mut self,
-        reader: R,
-    ) -> Result<(), LtHashError> {
+    fn hash_reader_into_scratch<R: std::io::Read>(&mut self, reader: R) -> Result<(), LtHashError> {
         let mut xof = Blake2xb::new();
         let key = self.key.as_deref().unwrap_or(&[]);
         xof.init(self.scratch.len(), key, &[], &[])?;
         xof.update_reader(reader)?;
         xof.finish(&mut self.scratch)?;
-
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
