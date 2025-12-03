@@ -1,6 +1,5 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
-use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -138,7 +137,6 @@ fn hash_directory_recursive(dir: &str, include_hidden: bool) -> Result<(LtHash16
     let root = Path::new(dir).canonicalize()
         .map_err(|e| format!("cannot resolve '{}': {}", dir, e))?;
 
-    let mut visited = HashSet::new();
     let mut total_stats = Stats {
         files_found: 0,
         files_hashed: 0,
@@ -147,28 +145,17 @@ fn hash_directory_recursive(dir: &str, include_hidden: bool) -> Result<(LtHash16
         total_bytes: 0,
     };
 
-    let hash = hash_dir_recursive_inner(&root, &mut visited, &mut total_stats, include_hidden)?;
+    let hash = hash_dir_recursive_inner(&root, &mut total_stats, include_hidden)?;
     Ok((hash, total_stats))
 }
 
 fn hash_dir_recursive_inner(
     dir: &Path,
-    visited: &mut HashSet<PathBuf>,
     stats: &mut Stats,
     include_hidden: bool,
 ) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
-    // Get canonical path for loop detection
-    let canonical = dir.canonicalize()
-        .map_err(|e| format!("cannot resolve '{}': {}", dir.display(), e))?;
-
-    // Check for loops
-    if !visited.insert(canonical.clone()) {
-        eprintln!("warning: skipping already visited directory: {}", dir.display());
-        return Ok(LtHash16_1024::new()?);
-    }
-
-    // Use walkdir to get immediate children only (not recursive)
-    // This gives us proper loop detection for symlinks pointing to ancestors
+    // Use walkdir to get immediate children only (max_depth=1)
+    // follow_links(false) prevents symlink loops
     let mut files = Vec::new();
     let mut subdirs = Vec::new();
 
@@ -225,7 +212,7 @@ fn hash_dir_recursive_inner(
 
     // Recursively hash subdirectories and add their checksums
     for subdir in subdirs {
-        let subdir_hash = hash_dir_recursive_inner(&subdir, visited, stats, include_hidden)?;
+        let subdir_hash = hash_dir_recursive_inner(&subdir, stats, include_hidden)?;
         // Add subdirectory's checksum as data to this directory's hash
         dir_hash.add_object(subdir_hash.get_checksum())?;
         stats.dirs_hashed += 1;
