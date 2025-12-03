@@ -322,7 +322,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     pub fn add_objects_parallel(&mut self, objects: &[&[u8]]) -> Result<&mut Self, LtHashError> {
         let key = self.key.clone();
 
-        // Hash each object in parallel and combine using parallel tree reduction
         let combined: Result<Self, LtHashError> = objects
             .par_iter()
             .map(|data| {
@@ -341,9 +340,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 },
             );
 
-        // Add the combined result to self
         Self::math_add(&mut self.checksum, &combined?.checksum)?;
-
         Ok(self)
     }
 
@@ -375,7 +372,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     ) -> Result<&mut Self, LtHashError> {
         let key = self.key.clone();
 
-        // Hash each reader in parallel and combine using parallel tree reduction
         let combined: Result<Self, LtHashError> = readers
             .into_par_iter()
             .map(|reader| {
@@ -394,9 +390,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 },
             );
 
-        // Add the combined result to self
         Self::math_add(&mut self.checksum, &combined?.checksum)?;
-
         Ok(self)
     }
 
