@@ -10,6 +10,7 @@ thiserror = "1.0"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 base64 = "0.22"
 rayon = { version = "1.10", optional = true }
+walkdir = { version = "2", optional = true }
 
 [dev-dependencies]
 criterion = "0.5"
@@ -19,7 +20,7 @@ rayon = "1.10"  # Always available for benchmarks
 default = ["blake3-backend"]
 blake3-backend = ["blake3"]
 folly-compat = ["libsodium-sys"]  # For Facebook Folly C++ compatibility
-parallel = ["rayon"]  # Enable parallel hashing
+parallel = ["rayon", "walkdir"]  # Enable parallel hashing
 
 [lib]
 name = "lthash"
