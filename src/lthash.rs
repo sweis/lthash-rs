@@ -305,8 +305,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// Hash multiple objects in parallel and add them to this hash.
     ///
     /// This method uses rayon to hash each object in a separate thread,
-    /// then combines all results. Since LtHash is homomorphic, the order
-    /// of addition doesn't matter, making this safe for parallel execution.
+    /// then combines results using parallel tree reduction. Since LtHash is
+    /// homomorphic, the order of addition doesn't matter, making this safe
+    /// for parallel execution.
     ///
     /// # Example
     /// ```no_run
@@ -321,8 +322,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     pub fn add_objects_parallel(&mut self, objects: &[&[u8]]) -> Result<&mut Self, LtHashError> {
         let key = self.key.clone();
 
-        // Hash each object in parallel, creating independent LtHash instances
-        let hashes: Result<Vec<Self>, LtHashError> = objects
+        // Hash each object in parallel and combine using parallel tree reduction
+        let combined: Result<Self, LtHashError> = objects
             .par_iter()
             .map(|data| {
                 let mut h = Self::new()?;
@@ -332,12 +333,16 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 h.add_object(data)?;
                 Ok(h)
             })
-            .collect();
+            .try_reduce(
+                || Self::new().expect("Failed to create empty LtHash"),
+                |mut a, b| {
+                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Ok(a)
+                },
+            );
 
-        // Combine all hashes into self
-        for h in hashes? {
-            Self::math_add(&mut self.checksum, &h.checksum)?;
-        }
+        // Add the combined result to self
+        Self::math_add(&mut self.checksum, &combined?.checksum)?;
 
         Ok(self)
     }
@@ -345,8 +350,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// Hash multiple readers in parallel and add them to this hash.
     ///
     /// Each reader is processed in a separate thread using streaming,
-    /// so this is efficient for large files. The readers must implement
-    /// `Read + Send` to be safely shared across threads.
+    /// so this is efficient for large files. Results are combined using
+    /// parallel tree reduction. The readers must implement `Read + Send`
+    /// to be safely shared across threads.
     ///
     /// # Example
     /// ```no_run
@@ -369,8 +375,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     ) -> Result<&mut Self, LtHashError> {
         let key = self.key.clone();
 
-        // Hash each reader in parallel using streaming
-        let hashes: Result<Vec<Self>, LtHashError> = readers
+        // Hash each reader in parallel and combine using parallel tree reduction
+        let combined: Result<Self, LtHashError> = readers
             .into_par_iter()
             .map(|reader| {
                 let mut h = Self::new()?;
@@ -380,12 +386,16 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 h.add_object_stream(reader)?;
                 Ok(h)
             })
-            .collect();
+            .try_reduce(
+                || Self::new().expect("Failed to create empty LtHash"),
+                |mut a, b| {
+                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Ok(a)
+                },
+            );
 
-        // Combine all hashes into self
-        for h in hashes? {
-            Self::math_add(&mut self.checksum, &h.checksum)?;
-        }
+        // Add the combined result to self
+        Self::math_add(&mut self.checksum, &combined?.checksum)?;
 
         Ok(self)
     }
