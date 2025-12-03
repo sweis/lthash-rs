@@ -51,21 +51,6 @@ impl Blake3Xof {
         }
     }
 
-    /// Create a new hasher with parameters
-    ///
-    /// Note: salt and personalization are ignored for BLAKE3 (not supported).
-    /// Keys must be exactly 32 bytes.
-    pub fn with_params(
-        output_length: usize,
-        key: &[u8],
-        _salt: &[u8],
-        _personalization: &[u8],
-    ) -> Result<Self, LtHashError> {
-        let mut xof = Self::new();
-        xof.init(output_length, key, &[], &[])?;
-        Ok(xof)
-    }
-
     /// Initialize the hasher
     ///
     /// # Arguments
