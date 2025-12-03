@@ -4,7 +4,6 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use walkdir::WalkDir;
 
 struct Args {
     directory: String,
@@ -97,7 +96,7 @@ fn is_hidden(path: &Path) -> bool {
 }
 
 fn hash_directory_flat(dir: &str, include_hidden: bool) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error>> {
-    let files = collect_files_flat(dir, include_hidden)?;
+    let files = collect_files(dir, include_hidden)?;
     let files_found = files.len();
 
     if files_found == 0 {
@@ -154,42 +153,50 @@ fn hash_dir_recursive_inner(
     stats: &mut Stats,
     include_hidden: bool,
 ) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
-    // Use walkdir to get immediate children only (max_depth=1)
-    // follow_links(false) prevents symlink loops
     let mut files = Vec::new();
     let mut subdirs = Vec::new();
 
-    for entry in WalkDir::new(dir).max_depth(1).follow_links(false) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("warning: cannot read '{}': {}", dir.display(), e);
+            return Ok(LtHash16_1024::new()?);
+        }
+    };
+
+    for entry in entries {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                if let Some(path) = e.path() {
-                    eprintln!("warning: cannot access '{}': {}", path.display(), e);
-                }
+                eprintln!("warning: cannot read entry: {}", e);
                 continue;
             }
         };
 
-        // Skip the root directory itself
-        if entry.depth() == 0 {
-            continue;
-        }
-
         let path = entry.path();
 
         // Skip hidden files/dirs unless include_hidden is set
-        if !include_hidden && is_hidden(path) {
+        if !include_hidden && is_hidden(&path) {
             continue;
         }
 
-        let file_type = entry.file_type();
+        // Use symlink_metadata to not follow symlinks
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("warning: cannot stat '{}': {}", path.display(), e);
+                continue;
+            }
+        };
+
+        let file_type = metadata.file_type();
 
         if file_type.is_file() {
-            files.push(path.to_path_buf());
+            files.push(path);
         } else if file_type.is_dir() {
-            subdirs.push(path.to_path_buf());
+            subdirs.push(path);
         }
-        // Skip symlinks and other file types
+        // Skip symlinks and other file types (no loops possible)
     }
 
     // Sort for deterministic ordering
@@ -213,7 +220,6 @@ fn hash_dir_recursive_inner(
     // Recursively hash subdirectories and add their checksums
     for subdir in subdirs {
         let subdir_hash = hash_dir_recursive_inner(&subdir, stats, include_hidden)?;
-        // Add subdirectory's checksum as data to this directory's hash
         dir_hash.add_object(subdir_hash.get_checksum())?;
         stats.dirs_hashed += 1;
     }
@@ -221,7 +227,7 @@ fn hash_dir_recursive_inner(
     Ok(dir_hash)
 }
 
-fn collect_files_flat(dir: &str, include_hidden: bool) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+fn collect_files(dir: &str, include_hidden: bool) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     let mut files = Vec::new();
 
     let entries = match fs::read_dir(dir) {
@@ -237,17 +243,17 @@ fn collect_files_flat(dir: &str, include_hidden: bool) -> Result<Vec<PathBuf>, B
 
         let path = entry.path();
 
-        // Skip hidden files unless include_hidden is set
         if !include_hidden && is_hidden(&path) {
             continue;
         }
 
-        let metadata = match fs::metadata(&path) {
+        // Use symlink_metadata to not follow symlinks
+        let metadata = match fs::symlink_metadata(&path) {
             Ok(m) => m,
             Err(_) => continue,
         };
 
-        if metadata.is_file() {
+        if metadata.file_type().is_file() {
             files.push(path);
         }
     }
