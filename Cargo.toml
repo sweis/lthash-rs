@@ -40,6 +40,11 @@ name = "lthash"
 path = "src/bin/lthash_cli.rs"
 # Works with either backend (uses LtHash, not Blake2xb directly)
 
+[[bin]]
+name = "lthash_dir"
+path = "src/bin/lthash_dir.rs"
+required-features = ["parallel"]
+
 [[bench]]
 name = "lthash_bench"
 harness = false
