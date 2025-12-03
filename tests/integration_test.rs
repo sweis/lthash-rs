@@ -186,3 +186,56 @@ fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
 
     Ok(())
 }
+
+#[cfg(feature = "parallel")]
+#[test]
+fn test_parallel_equals_sequential() -> Result<(), LtHashError> {
+    // Test that parallel hashing produces identical results to sequential
+
+    let objects: Vec<&[u8]> = vec![
+        b"first object",
+        b"second object",
+        b"third object",
+        b"fourth object",
+        b"fifth object",
+    ];
+
+    // Hash sequentially
+    let mut hash_seq = LtHash16_1024::new()?;
+    for obj in &objects {
+        hash_seq.add_object(obj)?;
+    }
+
+    // Hash in parallel
+    let mut hash_par = LtHash16_1024::new()?;
+    hash_par.add_objects_parallel(&objects)?;
+
+    assert_eq!(
+        hash_seq.get_checksum(),
+        hash_par.get_checksum(),
+        "Parallel and sequential hashing produced different results"
+    );
+
+    // Also test from_objects_parallel
+    let hash_par2 = LtHash16_1024::from_objects_parallel(&objects)?;
+    assert_eq!(
+        hash_seq.get_checksum(),
+        hash_par2.get_checksum(),
+        "from_objects_parallel produced different results"
+    );
+
+    // Test with readers
+    let readers: Vec<std::io::Cursor<&[u8]>> = objects
+        .iter()
+        .map(|o| std::io::Cursor::new(*o))
+        .collect();
+
+    let hash_par_stream = LtHash16_1024::from_readers_parallel(readers)?;
+    assert_eq!(
+        hash_seq.get_checksum(),
+        hash_par_stream.get_checksum(),
+        "Parallel streaming produced different results"
+    );
+
+    Ok(())
+}

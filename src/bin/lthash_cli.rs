@@ -2,24 +2,26 @@
 //!
 //! A Unix-friendly CLI for computing and combining LtHash checksums.
 //! Uses streaming to handle large files without loading them into memory.
+//! Supports parallel hashing when built with the `parallel` feature.
 //!
 //! # Usage
 //!
 //! ```bash
-//! # Hash a file
+//! # Hash one or more files
 //! lthash myfile.txt
+//! lthash file1.txt file2.txt file3.txt
 //!
 //! # Hash stdin
 //! cat myfile.txt | lthash -
 //!
-//! # Add a file to an existing hash
-//! lthash add <hash> myfile.txt
+//! # Add files to an existing hash
+//! lthash add <hash> file1.txt file2.txt ...
 //!
-//! # Subtract a file from an existing hash
-//! lthash sub <hash> myfile.txt
+//! # Subtract files from an existing hash
+//! lthash sub <hash> file1.txt file2.txt ...
 //!
 //! # Piping: chain operations
-//! lthash file1.txt | lthash add - file2.txt | lthash add - file3.txt
+//! lthash file1.txt | lthash add - file2.txt file3.txt
 //! ```
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -32,26 +34,32 @@ use std::process;
 const USAGE: &str = r#"lthash - Homomorphic hash tool
 
 USAGE:
-    lthash [FILE]           Hash a file (or stdin with '-')
-    lthash add HASH [FILE]  Add file to existing hash
-    lthash sub HASH [FILE]  Subtract file from existing hash
+    lthash [FILE...]           Hash one or more files (use '-' for stdin)
+    lthash add HASH [FILE...]  Add files to existing hash
+    lthash sub HASH [FILE...]  Subtract files from existing hash
 
 ARGUMENTS:
-    FILE    File to process (use '-' for stdin)
+    FILE    File(s) to process (use '-' for stdin, only valid as sole argument)
     HASH    URL-safe base64 encoded hash (use '-' to read from stdin)
 
 EXAMPLES:
-    # Hash a file
+    # Hash a single file
     lthash myfile.txt
+
+    # Hash multiple files (combined homomorphically)
+    lthash file1.txt file2.txt file3.txt
 
     # Hash stdin
     echo "hello" | lthash -
 
     # Combine hashes (piping)
-    lthash file1.txt | lthash add - file2.txt | lthash add - file3.txt
+    lthash file1.txt | lthash add - file2.txt file3.txt
 
-    # Remove a file's contribution
-    lthash sub $COMBINED_HASH removed_file.txt
+    # Remove files' contribution
+    lthash sub $COMBINED_HASH removed1.txt removed2.txt
+
+FEATURES:
+    Build with --features parallel for multi-threaded file hashing
 
 OUTPUT:
     Prints URL-safe base64 encoded hash to stdout (no padding, safe for CLI args)
@@ -80,71 +88,78 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         "add" => {
             if args.len() < 3 {
                 eprintln!("error: 'add' requires a hash argument");
-                eprintln!("usage: lthash add HASH [FILE]");
+                eprintln!("usage: lthash add HASH [FILE...]");
                 process::exit(1);
             }
             let hash_arg = &args[2];
-            let file_arg = args.get(3).map(|s| s.as_str()).unwrap_or("-");
-            cmd_add(hash_arg, file_arg)
+            let file_args: Vec<&str> = if args.len() > 3 {
+                args[3..].iter().map(|s| s.as_str()).collect()
+            } else {
+                vec!["-"]
+            };
+            cmd_add(hash_arg, &file_args)
         }
         "sub" => {
             if args.len() < 3 {
                 eprintln!("error: 'sub' requires a hash argument");
-                eprintln!("usage: lthash sub HASH [FILE]");
+                eprintln!("usage: lthash sub HASH [FILE...]");
                 process::exit(1);
             }
             let hash_arg = &args[2];
-            let file_arg = args.get(3).map(|s| s.as_str()).unwrap_or("-");
-            cmd_sub(hash_arg, file_arg)
+            let file_args: Vec<&str> = if args.len() > 3 {
+                args[3..].iter().map(|s| s.as_str()).collect()
+            } else {
+                vec!["-"]
+            };
+            cmd_sub(hash_arg, &file_args)
         }
-        file_arg => cmd_hash(file_arg),
+        _ => {
+            // All remaining args are file paths
+            let file_args: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
+            cmd_hash(&file_args)
+        }
     }
 }
 
-/// Hash a single file using streaming (no full file load into memory)
-fn cmd_hash(file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut hash = LtHash16_1024::new()?;
-    hash_file_stream(&mut hash, file_arg, true)?;
-
+/// Hash one or more files
+fn cmd_hash(file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    let hash = hash_files(file_args, true)?;
     let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
     println!("{}", encoded);
-
     Ok(())
 }
 
-/// Add a file's hash to an existing hash using streaming
-fn cmd_add(hash_arg: &str, file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// Add files' hashes to an existing hash
+fn cmd_add(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let existing_hash = read_hash(hash_arg)?;
-
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
-    hash_file_stream(&mut hash, file_arg, true)?;
+
+    let file_hash = hash_files(file_args, true)?;
+    hash.try_add(&file_hash)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
     println!("{}", encoded);
-
     Ok(())
 }
 
-/// Subtract a file's hash from an existing hash using streaming
-fn cmd_sub(hash_arg: &str, file_arg: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// Subtract files' hashes from an existing hash
+fn cmd_sub(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let existing_hash = read_hash(hash_arg)?;
-
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
-    hash_file_stream(&mut hash, file_arg, false)?;
+
+    let file_hash = hash_files(file_args, true)?;
+    hash.try_sub(&file_hash)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
     println!("{}", encoded);
-
     Ok(())
 }
 
-/// Stream a file into the hash (add or remove based on `add` flag)
-fn hash_file_stream(
-    hash: &mut LtHash16_1024,
-    file_arg: &str,
-    add: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if file_arg == "-" {
+/// Hash multiple files, using parallel processing when available and beneficial
+fn hash_files(file_args: &[&str], add: bool) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
+    // Handle stdin case - must be processed sequentially
+    if file_args.len() == 1 && file_args[0] == "-" {
+        let mut hash = LtHash16_1024::new()?;
         let stdin = io::stdin();
         let reader = stdin.lock();
         if add {
@@ -152,7 +167,34 @@ fn hash_file_stream(
         } else {
             hash.remove_object_stream(reader)?;
         }
-    } else {
+        return Ok(hash);
+    }
+
+    // Check for stdin in multi-file context (not allowed)
+    if file_args.contains(&"-") {
+        return Err("stdin (-) can only be used as the sole file argument".into());
+    }
+
+    // Use parallel hashing if available and we have multiple files
+    #[cfg(feature = "parallel")]
+    {
+        if file_args.len() > 1 {
+            return hash_files_parallel(file_args, add);
+        }
+    }
+
+    // Sequential fallback (single file or no parallel feature)
+    hash_files_sequential(file_args, add)
+}
+
+/// Hash files sequentially using streaming
+fn hash_files_sequential(
+    file_args: &[&str],
+    add: bool,
+) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
+    let mut hash = LtHash16_1024::new()?;
+
+    for file_arg in file_args {
         let file =
             File::open(file_arg).map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
         let reader = BufReader::new(file);
@@ -163,7 +205,38 @@ fn hash_file_stream(
         }
     }
 
-    Ok(())
+    Ok(hash)
+}
+
+/// Hash files in parallel using rayon
+#[cfg(feature = "parallel")]
+fn hash_files_parallel(
+    file_args: &[&str],
+    add: bool,
+) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
+    // Open all files first to catch errors early
+    let readers: Result<Vec<_>, _> = file_args
+        .iter()
+        .map(|path| {
+            File::open(path)
+                .map(BufReader::new)
+                .map_err(|e| format!("cannot open '{}': {}", path, e))
+        })
+        .collect();
+    let readers = readers?;
+
+    // Hash in parallel
+    let hash = LtHash16_1024::from_readers_parallel(readers)?;
+
+    // For subtraction, we need to negate the result
+    if !add {
+        // Create empty hash and subtract
+        let mut result = LtHash16_1024::new()?;
+        result.try_sub(&hash)?;
+        return Ok(result);
+    }
+
+    Ok(hash)
 }
 
 /// Read and decode a hash from argument or stdin

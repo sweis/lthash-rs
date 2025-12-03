@@ -20,7 +20,7 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 | `src/blake3_xof.rs` | 257 | BLAKE3 XOF wrapper (default backend) |
 | `src/blake2xb.rs` | 447 | Blake2xb XOF using libsodium (Folly-compat) |
 | `src/lthash.rs` | 666 | Core LtHash with const generics |
-| `src/bin/lthash_cli.rs` | 192 | Unix-friendly CLI tool |
+| `src/bin/lthash_cli.rs` | 272 | Unix-friendly CLI tool with multi-file support |
 
 ---
 
@@ -71,6 +71,10 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 - **Streaming API** for large files: `add_object_stream()` / `remove_object_stream()`
   - Reads data in 8KB chunks, never loads entire file into memory
   - CLI uses streaming by default for all file operations
+- **Parallel hashing** (optional `parallel` feature): `add_objects_parallel()` / `add_readers_parallel()`
+  - Uses rayon for multi-threaded hashing of multiple files
+  - 1.5x speedup for 16x64KB objects (overhead makes it slower for small objects)
+  - CLI uses parallel hashing automatically when multiple files provided
 
 ---
 
@@ -81,6 +85,7 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 default = ["blake3-backend"]
 blake3-backend = ["blake3"]      # Pure Rust, fast, no deps
 folly-compat = ["libsodium-sys"] # For Facebook Folly C++ compatibility
+parallel = ["rayon"]             # Enable parallel hashing
 ```
 
 ### Build Commands

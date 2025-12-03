@@ -192,6 +192,112 @@ fn bench_creation(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark sequential vs parallel hashing of multiple objects
+fn bench_parallel(c: &mut Criterion) {
+    use rayon::prelude::*;
+    use std::io::Cursor;
+
+    let mut group = c.benchmark_group("parallel");
+
+    // Create test data: multiple 1KB objects
+    let object_count = 100;
+    let object_size = 1024;
+    let objects: Vec<Vec<u8>> = (0..object_count)
+        .map(|i| vec![(i % 256) as u8; object_size])
+        .collect();
+    let object_refs: Vec<&[u8]> = objects.iter().map(|o| o.as_slice()).collect();
+
+    let total_bytes = (object_count * object_size) as u64;
+    group.throughput(Throughput::Bytes(total_bytes));
+
+    // Sequential: hash objects one at a time
+    group.bench_function(format!("{object_count}x{object_size}B_sequential"), |b| {
+        b.iter(|| {
+            let mut hash = LtHash16_1024::new().unwrap();
+            for obj in &object_refs {
+                hash.add_object(black_box(obj)).unwrap();
+            }
+            hash
+        });
+    });
+
+    // Parallel: hash objects in parallel, then combine
+    group.bench_function(format!("{object_count}x{object_size}B_parallel"), |b| {
+        b.iter(|| {
+            // Parallel hash each object
+            let hashes: Vec<LtHash16_1024> = object_refs
+                .par_iter()
+                .map(|obj| {
+                    let mut h = LtHash16_1024::new().unwrap();
+                    h.add_object(black_box(obj)).unwrap();
+                    h
+                })
+                .collect();
+
+            // Combine all hashes
+            let mut result = LtHash16_1024::new().unwrap();
+            for h in hashes {
+                result.try_add(&h).unwrap();
+            }
+            result
+        });
+    });
+
+    group.finish();
+
+    // Benchmark with larger objects to test streaming
+    let mut group2 = c.benchmark_group("parallel_streaming");
+
+    let large_object_count = 16;
+    let large_object_size = 64 * 1024; // 64KB each
+    let large_objects: Vec<Vec<u8>> = (0..large_object_count)
+        .map(|i| vec![(i % 256) as u8; large_object_size])
+        .collect();
+
+    let total_large_bytes = (large_object_count * large_object_size) as u64;
+    group2.throughput(Throughput::Bytes(total_large_bytes));
+
+    // Sequential streaming
+    group2.bench_function(
+        format!("{large_object_count}x{large_object_size}B_sequential_stream"),
+        |b| {
+            b.iter(|| {
+                let mut hash = LtHash16_1024::new().unwrap();
+                for obj in &large_objects {
+                    hash.add_object_stream(Cursor::new(black_box(obj)))
+                        .unwrap();
+                }
+                hash
+            });
+        },
+    );
+
+    // Parallel streaming
+    group2.bench_function(
+        format!("{large_object_count}x{large_object_size}B_parallel_stream"),
+        |b| {
+            b.iter(|| {
+                let hashes: Vec<LtHash16_1024> = large_objects
+                    .par_iter()
+                    .map(|obj| {
+                        let mut h = LtHash16_1024::new().unwrap();
+                        h.add_object_stream(Cursor::new(black_box(obj))).unwrap();
+                        h
+                    })
+                    .collect();
+
+                let mut result = LtHash16_1024::new().unwrap();
+                for h in hashes {
+                    result.try_add(&h).unwrap();
+                }
+                result
+            });
+        },
+    );
+
+    group2.finish();
+}
+
 // Default: BLAKE3 backend
 #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
 criterion_group!(
@@ -201,6 +307,7 @@ criterion_group!(
     bench_lthash_combine,
     bench_checksum_compare,
     bench_creation,
+    bench_parallel,
 );
 
 // Folly-compatible: Blake2xb backend
@@ -212,6 +319,7 @@ criterion_group!(
     bench_lthash_combine,
     bench_checksum_compare,
     bench_creation,
+    bench_parallel,
 );
 
 criterion_main!(benches);
