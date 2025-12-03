@@ -83,6 +83,9 @@ impl Blake3Xof {
         _salt: &[u8],
         _personalization: &[u8],
     ) -> Result<(), LtHashError> {
+        // Note: For BLAKE3, MAX_OUTPUT_LENGTH is usize::MAX, so this check
+        // is effectively a no-op but kept for API consistency with Blake2xb
+        #[allow(clippy::absurd_extreme_comparisons)]
         if output_length > Self::MAX_OUTPUT_LENGTH {
             return Err(LtHashError::OutputLengthTooLarge {
                 max: Self::MAX_OUTPUT_LENGTH,
@@ -215,16 +218,11 @@ impl Default for Blake3Xof {
     }
 }
 
-impl Drop for Blake3Xof {
-    fn drop(&mut self) {
-        // Drop the hasher (blake3::Hasher will be deallocated)
-        // Note: blake3::Hasher doesn't implement Zeroize, so we can't guarantee
-        // its internal state is zeroed before deallocation
-        self.hasher = None;
-        self.output_length = 0;
-        self.finished = false;
-    }
-}
+// Note: We don't implement Drop for Blake3Xof because:
+// 1. blake3::Hasher doesn't implement Zeroize, so we can't guarantee its
+//    internal state is zeroed before deallocation anyway
+// 2. Setting primitive fields to 0/false before drop has no security benefit
+// 3. The default drop behavior is sufficient
 
 #[cfg(test)]
 mod tests {

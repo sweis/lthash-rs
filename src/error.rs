@@ -37,4 +37,16 @@ pub enum LtHashError {
 
     #[error("Key mismatch: cannot combine LtHashes with different keys")]
     KeyMismatch,
+
+    #[error("Unsupported element size: {actual} bits (must be 16, 20, or 32)")]
+    UnsupportedElementSize { actual: usize },
+
+    #[error("Element count too small: minimum {minimum}, got {actual}")]
+    ElementCountTooSmall { minimum: usize, actual: usize },
+
+    #[error("Element count {element_count} not divisible by elements per u64 ({elements_per_u64})")]
+    ElementCountNotDivisible {
+        element_count: usize,
+        elements_per_u64: usize,
+    },
 }
