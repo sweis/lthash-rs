@@ -67,12 +67,26 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
-#[cfg(feature = "blake3-backend")]
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
 use crate::blake3_xof::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 use crate::blake2xb::Blake2xb;
 use crate::error::LtHashError;
 use zeroize::Zeroize;
+
+/// Constant-time comparison of two byte slices.
+/// Returns true if slices are equal, preventing timing attacks.
+#[inline]
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        result |= x ^ y;
+    }
+    result == 0
+}
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -146,11 +160,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             Self::check_padding_bits(initial_checksum)?;
         }
 
-        let mut checksum = vec![0u8; checksum_size];
-        checksum.copy_from_slice(initial_checksum);
-
         Ok(LtHash {
-            checksum,
+            checksum: initial_checksum.to_vec(),
             key: None,
             scratch: vec![0u8; checksum_size],
         })
@@ -420,87 +431,52 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 actual: other_checksum.len(),
             });
         }
-
-        // Constant-time comparison
-        let mut result = 0u8;
-        for (a, b) in self.checksum.iter().zip(other_checksum.iter()) {
-            result |= a ^ b;
-        }
-        Ok(result == 0)
+        Ok(constant_time_eq(&self.checksum, other_checksum))
     }
 
-    /// Hash object directly into the pre-allocated scratch buffer (BLAKE3 backend, default)
-    ///
-    /// Uses BLAKE3 XOF for high-performance hashing. This is the default backend.
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
     fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
-        if let Some(ref key) = self.key {
-            Blake3Xof::hash(&mut self.scratch, data, key, &[], &[])?;
-        } else {
-            Blake3Xof::hash(&mut self.scratch, data, &[], &[], &[])?;
-        }
-
+        let key = self.key.as_deref().unwrap_or(&[]);
+        Blake3Xof::hash(&mut self.scratch, data, key, &[], &[])?;
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
-    /// Hash object directly into the pre-allocated scratch buffer (Blake2xb backend)
-    ///
-    /// Uses Blake2xb for compatibility with Facebook's Folly C++ implementation.
-    /// Enable with `--features folly-compat`.
     #[cfg(feature = "folly-compat")]
     fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
-        if let Some(ref key) = self.key {
-            Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;
-        } else {
-            Blake2xb::hash(&mut self.scratch, data, &[], &[], &[])?;
-        }
-
+        let key = self.key.as_deref().unwrap_or(&[]);
+        Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
-    /// Stream data from a reader into the scratch buffer (BLAKE3 backend)
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
-    fn hash_reader_into_scratch<R: std::io::Read>(
-        &mut self,
-        reader: R,
-    ) -> Result<(), LtHashError> {
+    fn hash_reader_into_scratch<R: std::io::Read>(&mut self, reader: R) -> Result<(), LtHashError> {
         let mut xof = Blake3Xof::new();
         let key = self.key.as_deref().unwrap_or(&[]);
         xof.init(self.scratch.len(), key, &[], &[])?;
         xof.update_reader(reader)?;
         xof.finish(&mut self.scratch)?;
-
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
-    /// Stream data from a reader into the scratch buffer (Blake2xb backend)
     #[cfg(feature = "folly-compat")]
-    fn hash_reader_into_scratch<R: std::io::Read>(
-        &mut self,
-        reader: R,
-    ) -> Result<(), LtHashError> {
+    fn hash_reader_into_scratch<R: std::io::Read>(&mut self, reader: R) -> Result<(), LtHashError> {
         let mut xof = Blake2xb::new();
         let key = self.key.as_deref().unwrap_or(&[]);
         xof.init(self.scratch.len(), key, &[], &[])?;
         xof.update_reader(reader)?;
         xof.finish(&mut self.scratch)?;
-
         if Self::has_padding_bits() {
             Self::clear_padding_bits(&mut self.scratch);
         }
-
         Ok(())
     }
 
@@ -775,17 +751,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     fn keys_equal(&self, other: &Self) -> bool {
         match (&self.key, &other.key) {
             (None, None) => true,
-            (Some(a), Some(b)) => {
-                if a.len() != b.len() {
-                    return false;
-                }
-                // Constant-time comparison
-                let mut result = 0u8;
-                for (x, y) in a.iter().zip(b.iter()) {
-                    result |= x ^ y;
-                }
-                result == 0
-            }
+            (Some(a), Some(b)) => constant_time_eq(a, b),
             _ => false,
         }
     }
@@ -808,16 +774,7 @@ impl<const B: usize, const N: usize> Default for LtHash<B, N> {
 
 impl<const B: usize, const N: usize> PartialEq for LtHash<B, N> {
     fn eq(&self, other: &Self) -> bool {
-        if self.checksum.len() != other.checksum.len() {
-            return false;
-        }
-
-        // Constant-time comparison
-        let mut result = 0u8;
-        for (a, b) in self.checksum.iter().zip(other.checksum.iter()) {
-            result |= a ^ b;
-        }
-        result == 0
+        constant_time_eq(&self.checksum, &other.checksum)
     }
 }
 
