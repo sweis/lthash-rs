@@ -39,9 +39,6 @@ pub struct Blake3Xof {
 }
 
 impl Blake3Xof {
-    /// Minimum supported output length
-    pub const MIN_OUTPUT_LENGTH: usize = 1;
-
     /// Maximum supported output length (effectively unlimited for BLAKE3)
     pub const MAX_OUTPUT_LENGTH: usize = usize::MAX;
 
@@ -194,20 +191,27 @@ impl Blake3Xof {
     /// * `out` - Output buffer (length determines XOF output size)
     /// * `data` - Input data to hash
     /// * `key` - Optional key (32 bytes, or empty for unkeyed)
-    /// * `_salt` - Ignored
-    /// * `_personalization` - Ignored
+    /// * `_salt` - Ignored (BLAKE3 doesn't support salt)
+    /// * `_personalization` - Ignored (BLAKE3 doesn't support personalization)
     #[must_use = "this returns a Result that must be checked"]
     pub fn hash(
         out: &mut [u8],
         data: &[u8],
         key: &[u8],
-        salt: &[u8],
-        personalization: &[u8],
+        _salt: &[u8],
+        _personalization: &[u8],
     ) -> Result<(), LtHashError> {
-        let mut xof = Self::new();
-        xof.init(out.len(), key, salt, personalization)?;
-        xof.update(data)?;
-        xof.finish(out)?;
+        let mut hasher = if key.is_empty() {
+            blake3::Hasher::new()
+        } else if key.len() == 32 {
+            let key_array: [u8; 32] = key.try_into().unwrap();
+            blake3::Hasher::new_keyed(&key_array)
+        } else {
+            let derived_key = blake3::derive_key("lthash-rs blake3xof key", key);
+            blake3::Hasher::new_keyed(&derived_key)
+        };
+
+        hasher.update(data).finalize_xof().fill(out);
         Ok(())
     }
 }
