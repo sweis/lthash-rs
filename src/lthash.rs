@@ -239,8 +239,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[must_use = "this returns a Result that must be checked"]
     pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        // Note: scratch buffer is fully overwritten by hash_object_into_scratch,
-        // no need to zero it first
         self.hash_object_into_scratch(data)?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -248,8 +246,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[must_use = "this returns a Result that must be checked"]
     pub fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        // Note: scratch buffer is fully overwritten by hash_object_into_scratch,
-        // no need to zero it first
         self.hash_object_into_scratch(data)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -274,7 +270,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         reader: R,
     ) -> Result<&mut Self, LtHashError> {
-        // Note: scratch buffer is fully overwritten by hash_reader_into_scratch
         self.hash_reader_into_scratch(reader)?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -289,7 +284,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         reader: R,
     ) -> Result<&mut Self, LtHashError> {
-        // Note: scratch buffer is fully overwritten by hash_reader_into_scratch
         self.hash_reader_into_scratch(reader)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
