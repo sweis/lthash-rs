@@ -72,7 +72,6 @@ use crate::blake3_xof::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 use crate::blake2xb::Blake2xb;
 use crate::error::LtHashError;
-use std::marker::PhantomData;
 use zeroize::Zeroize;
 
 #[cfg(feature = "parallel")]
@@ -94,8 +93,6 @@ pub struct LtHash<const B: usize, const N: usize> {
     key: Option<Vec<u8>>,
     /// Pre-allocated scratch buffer to avoid allocations in add_object/remove_object
     scratch: Vec<u8>,
-    /// Zero-sized marker for const generic parameters
-    _phantom: PhantomData<()>,
 }
 
 // Manual Clone implementation to avoid cloning the scratch buffer unnecessarily
@@ -105,7 +102,6 @@ impl<const B: usize, const N: usize> Clone for LtHash<B, N> {
             checksum: self.checksum.clone(),
             key: self.key.clone(),
             scratch: vec![0u8; Self::checksum_size_bytes()], // Fresh scratch buffer
-            _phantom: PhantomData,
         }
     }
 }
@@ -130,7 +126,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             checksum: vec![0u8; checksum_size],
             key: None,
             scratch: vec![0u8; checksum_size],
-            _phantom: PhantomData,
         })
     }
 
@@ -158,30 +153,28 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             checksum,
             key: None,
             scratch: vec![0u8; checksum_size],
-            _phantom: PhantomData,
         })
     }
 
     fn compile_time_checks() -> Result<(), LtHashError> {
         if N <= 999 {
-            return Err(LtHashError::InvalidChecksumSize {
-                expected: 1000,
+            return Err(LtHashError::ElementCountTooSmall {
+                minimum: 1000,
                 actual: N,
             });
         }
 
         if !matches!(B, 16 | 20 | 32) {
-            return Err(LtHashError::InvalidChecksumSize {
-                expected: 0, // Will be updated with proper validation
-                actual: B,
-            });
+            return Err(LtHashError::UnsupportedElementSize { actual: B });
         }
 
         let elements_per_u64 = Self::elements_per_u64();
-        if !N.is_multiple_of(elements_per_u64) {
-            return Err(LtHashError::InvalidChecksumSize {
-                expected: 0, // Will show proper divisibility requirement
-                actual: N,
+        // Using modulo instead of is_multiple_of() for clarity and compatibility
+        #[allow(clippy::manual_is_multiple_of)]
+        if N % elements_per_u64 != 0 {
+            return Err(LtHashError::ElementCountNotDivisible {
+                element_count: N,
+                elements_per_u64,
             });
         }
 
@@ -246,8 +239,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[must_use = "this returns a Result that must be checked"]
     pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        // Use pre-allocated scratch buffer to avoid allocation
-        self.scratch.fill(0);
+        // Note: scratch buffer is fully overwritten by hash_object_into_scratch,
+        // no need to zero it first
         self.hash_object_into_scratch(data)?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -255,8 +248,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[must_use = "this returns a Result that must be checked"]
     pub fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        // Use pre-allocated scratch buffer to avoid allocation
-        self.scratch.fill(0);
+        // Note: scratch buffer is fully overwritten by hash_object_into_scratch,
+        // no need to zero it first
         self.hash_object_into_scratch(data)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -281,7 +274,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         reader: R,
     ) -> Result<&mut Self, LtHashError> {
-        self.scratch.fill(0);
+        // Note: scratch buffer is fully overwritten by hash_reader_into_scratch
         self.hash_reader_into_scratch(reader)?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -296,7 +289,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         reader: R,
     ) -> Result<&mut Self, LtHashError> {
-        self.scratch.fill(0);
+        // Note: scratch buffer is fully overwritten by hash_reader_into_scratch
         self.hash_reader_into_scratch(reader)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
@@ -521,6 +514,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// The addition is performed on packed B-bit elements within u64 words,
     /// using specialized logic for different element sizes to match Facebook's
     /// Folly implementation exactly.
+    #[inline]
     fn math_add(checksum: &mut [u8], hash: &[u8]) -> Result<(), LtHashError> {
         if checksum.len() != hash.len() {
             return Err(LtHashError::InvalidChecksumSize {
@@ -540,6 +534,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(())
     }
 
+    #[inline]
     fn math_subtract(checksum: &mut [u8], hash: &[u8]) -> Result<(), LtHashError> {
         if checksum.len() != hash.len() {
             return Err(LtHashError::InvalidChecksumSize {
@@ -566,8 +561,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// Facebook's Folly implementation:
     ///
     /// - **16-bit elements**: Uses split-lane arithmetic to process 4 elements per u64
-    /// - **32-bit elements**: Uses high/low word splitting for 2 elements per u64  
+    /// - **32-bit elements**: Uses high/low word splitting for 2 elements per u64
     /// - **20-bit elements**: Uses general masking with padding bit handling
+    #[inline(always)]
     fn add_with_mask(a: u64, b: u64, mask: u64) -> u64 {
         match B {
             16 => {
@@ -605,6 +601,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         }
     }
 
+    #[inline(always)]
     fn subtract_with_mask(a: u64, b: u64, mask: u64) -> u64 {
         match B {
             16 => {
@@ -693,24 +690,26 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         }
     }
 
+    #[inline]
     fn as_u64_slice(bytes: &[u8]) -> &[u64] {
-        assert_eq!(bytes.len() % 8, 0);
+        debug_assert_eq!(bytes.len() % 8, 0);
         // SAFETY: We use align_to which handles alignment properly.
         // The prefix/suffix being empty is asserted to catch any alignment issues.
         let (prefix, aligned, suffix) = unsafe { bytes.align_to::<u64>() };
-        assert!(
+        debug_assert!(
             prefix.is_empty() && suffix.is_empty(),
             "Buffer is not properly aligned for u64 access"
         );
         aligned
     }
 
+    #[inline]
     fn as_u64_slice_mut(bytes: &mut [u8]) -> &mut [u64] {
-        assert_eq!(bytes.len() % 8, 0);
+        debug_assert_eq!(bytes.len() % 8, 0);
         // SAFETY: We use align_to_mut which handles alignment properly.
         // The prefix/suffix being empty is asserted to catch any alignment issues.
         let (prefix, aligned, suffix) = unsafe { bytes.align_to_mut::<u64>() };
-        assert!(
+        debug_assert!(
             prefix.is_empty() && suffix.is_empty(),
             "Buffer is not properly aligned for u64 access"
         );
