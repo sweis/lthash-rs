@@ -42,6 +42,41 @@ lthash sub "$HASH" removed_file.txt
 lthash a.txt | lthash add - b.txt | lthash sub - b.txt
 ```
 
+### Directory Hashing Example
+
+The `lthash_dir` tool demonstrates LtHash's power for incremental directory hashing:
+
+```bash
+# Build the directory hashing tool
+cargo build --release --features parallel
+
+# Create a test directory with some files
+mkdir -p test_dir
+echo "file one" > test_dir/file1.txt
+echo "file two" > test_dir/file2.txt
+
+# Get the initial directory hash
+HASH1=$(./target/release/lthash_dir test_dir 2>/dev/null)
+echo "Initial hash: $HASH1"
+
+# Create a new file
+echo "file three" > test_dir/file3.txt
+
+# Option A: Rehash the entire directory (slow for large directories)
+HASH2=$(./target/release/lthash_dir test_dir 2>/dev/null)
+
+# Option B: Incrementally update the hash with just the new file (fast!)
+HASH2_INCREMENTAL=$(./target/release/lthash add "$HASH1" test_dir/file3.txt)
+
+# Both methods produce identical results
+[ "$HASH2" = "$HASH2_INCREMENTAL" ] && echo "Hashes match!"
+
+# Clean up
+rm -rf test_dir
+```
+
+This is the key benefit of homomorphic hashing: when files are added or removed, you only need to process the changed files rather than re-reading the entire directory.
+
 ## Library Usage
 
 ```rust
