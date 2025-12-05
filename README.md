@@ -235,6 +235,7 @@ cargo test --features folly-compat  # Test with Blake2xb
 - [Bellare-Micciancio Paper](https://cseweb.ucsd.edu/~mihir/papers/inchash.pdf)
 - [Commonware Cryptography Rust Implementation](https://docs.rs/commonware-cryptography/latest/commonware_cryptography/lthash/index.html)
 - [lukechampine/lthash Go Implementation](https://github.com/lukechampine/lthash)
+- [solana-lattice-hash](https://lib.rs/crates/solana-lattice-hash)
 
 ## License
 
