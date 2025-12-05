@@ -49,7 +49,11 @@ fn parse_args() -> Args {
         i += 1;
     }
 
-    Args { directory, recursive, include_hidden }
+    Args {
+        directory,
+        recursive,
+        include_hidden,
+    }
 }
 
 fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -75,7 +79,11 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     if args.recursive {
         eprintln!("  Dirs hashed:    {}", stats.dirs_hashed);
     }
-    eprintln!("  Total bytes:    {} ({:.2} MB)", stats.total_bytes, stats.total_bytes as f64 / 1_000_000.0);
+    eprintln!(
+        "  Total bytes:    {} ({:.2} MB)",
+        stats.total_bytes,
+        stats.total_bytes as f64 / 1_000_000.0
+    );
     eprintln!();
     eprintln!("Timing:");
     eprintln!("  Total:          {:?}", total_time);
@@ -95,45 +103,61 @@ fn is_hidden(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn hash_directory_flat(dir: &str, include_hidden: bool) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error>> {
+fn hash_directory_flat(
+    dir: &str,
+    include_hidden: bool,
+) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error>> {
     let files = collect_files(dir, include_hidden)?;
     let files_found = files.len();
 
     if files_found == 0 {
-        return Ok((LtHash16_1024::new()?, Stats {
-            files_found: 0,
-            files_hashed: 0,
-            files_skipped: 0,
-            dirs_hashed: 0,
-            total_bytes: 0,
-        }));
+        return Ok((
+            LtHash16_1024::new()?,
+            Stats {
+                files_found: 0,
+                files_hashed: 0,
+                files_skipped: 0,
+                dirs_hashed: 0,
+                total_bytes: 0,
+            },
+        ));
     }
 
     let (readers, total_bytes, skipped) = open_files(&files);
 
     if readers.is_empty() {
-        return Ok((LtHash16_1024::new()?, Stats {
-            files_found,
-            files_hashed: 0,
-            files_skipped: skipped,
-            dirs_hashed: 0,
-            total_bytes: 0,
-        }));
+        return Ok((
+            LtHash16_1024::new()?,
+            Stats {
+                files_found,
+                files_hashed: 0,
+                files_skipped: skipped,
+                dirs_hashed: 0,
+                total_bytes: 0,
+            },
+        ));
     }
 
-    let hash = LtHash16_1024::from_readers_parallel(readers)?;
+    let hash = LtHash16_1024::from_streams_parallel(readers)?;
 
-    Ok((hash, Stats {
-        files_found,
-        files_hashed: files_found - skipped,
-        files_skipped: skipped,
-        dirs_hashed: 0,
-        total_bytes,
-    }))
+    Ok((
+        hash,
+        Stats {
+            files_found,
+            files_hashed: files_found - skipped,
+            files_skipped: skipped,
+            dirs_hashed: 0,
+            total_bytes,
+        },
+    ))
 }
 
-fn hash_directory_recursive(dir: &str, include_hidden: bool) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error>> {
-    let root = Path::new(dir).canonicalize()
+fn hash_directory_recursive(
+    dir: &str,
+    include_hidden: bool,
+) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error>> {
+    let root = Path::new(dir)
+        .canonicalize()
         .map_err(|e| format!("cannot resolve '{}': {}", dir, e))?;
 
     let mut total_stats = Stats {
@@ -212,7 +236,7 @@ fn hash_dir_recursive_inner(
 
     let mut dir_hash = if !readers.is_empty() {
         stats.files_hashed += readers.len();
-        LtHash16_1024::from_readers_parallel(readers)?
+        LtHash16_1024::from_streams_parallel(readers)?
     } else {
         LtHash16_1024::new()?
     };
@@ -220,14 +244,17 @@ fn hash_dir_recursive_inner(
     // Recursively hash subdirectories and add their checksums
     for subdir in subdirs {
         let subdir_hash = hash_dir_recursive_inner(&subdir, stats, include_hidden)?;
-        dir_hash.add_object(subdir_hash.get_checksum())?;
+        dir_hash.add(subdir_hash.get_checksum())?;
         stats.dirs_hashed += 1;
     }
 
     Ok(dir_hash)
 }
 
-fn collect_files(dir: &str, include_hidden: bool) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+fn collect_files(
+    dir: &str,
+    include_hidden: bool,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     let mut files = Vec::new();
 
     let entries = match fs::read_dir(dir) {

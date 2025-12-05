@@ -3,7 +3,10 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum LtHashError {
     #[error("Invalid key size: expected {expected}, got {actual}")]
-    InvalidKeySize { expected: &'static str, actual: usize },
+    InvalidKeySize {
+        expected: &'static str,
+        actual: usize,
+    },
 
     #[error("Invalid salt length: expected 16 bytes, got {0}")]
     InvalidSaltLength(usize),
@@ -44,7 +47,9 @@ pub enum LtHashError {
     #[error("Element count too small: minimum {minimum}, got {actual}")]
     ElementCountTooSmall { minimum: usize, actual: usize },
 
-    #[error("Element count {element_count} not divisible by elements per u64 ({elements_per_u64})")]
+    #[error(
+        "Element count {element_count} not divisible by elements per u64 ({elements_per_u64})"
+    )]
     ElementCountNotDivisible {
         element_count: usize,
         elements_per_u64: usize,

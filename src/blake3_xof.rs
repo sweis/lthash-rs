@@ -95,9 +95,10 @@ impl Blake3Xof {
 
     /// Update the hasher with input data
     pub fn update(&mut self, data: &[u8]) -> Result<(), LtHashError> {
-        let hasher = self.hasher.as_mut().ok_or(LtHashError::NotInitialized {
-            method: "update",
-        })?;
+        let hasher = self
+            .hasher
+            .as_mut()
+            .ok_or(LtHashError::NotInitialized { method: "update" })?;
 
         if self.finished {
             return Err(LtHashError::AlreadyFinished { method: "update" });
@@ -111,10 +112,7 @@ impl Blake3Xof {
     ///
     /// Reads data in chunks to avoid loading the entire input into memory.
     /// Returns the total number of bytes read.
-    pub fn update_reader<R: std::io::Read>(
-        &mut self,
-        mut reader: R,
-    ) -> Result<u64, LtHashError> {
+    pub fn update_reader<R: std::io::Read>(&mut self, mut reader: R) -> Result<u64, LtHashError> {
         let hasher = self.hasher.as_mut().ok_or(LtHashError::NotInitialized {
             method: "update_reader",
         })?;
@@ -147,9 +145,10 @@ impl Blake3Xof {
 
     /// Finalize and write output
     pub fn finish(&mut self, out: &mut [u8]) -> Result<(), LtHashError> {
-        let hasher = self.hasher.as_ref().ok_or(LtHashError::NotInitialized {
-            method: "finish",
-        })?;
+        let hasher = self
+            .hasher
+            .as_ref()
+            .ok_or(LtHashError::NotInitialized { method: "finish" })?;
 
         if self.finished {
             return Err(LtHashError::AlreadyCalled("finish"));

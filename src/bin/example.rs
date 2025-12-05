@@ -14,35 +14,35 @@ fn main() -> Result<(), LtHashError> {
     // Test LtHash
     let mut lthash = LtHash16_1024::new()?;
 
-    // Add some objects
-    lthash.add_object(b"object1")?;
-    lthash.add_object(b"object2")?;
-    lthash.add_object(b"object3")?;
+    // Add some data
+    lthash.add(b"object1")?;
+    lthash.add(b"object2")?;
+    lthash.add(b"object3")?;
 
     println!(
-        "Checksum after adding 3 objects: {}",
+        "Checksum after adding 3 items: {}",
         hex::encode(lthash.get_checksum())
     );
 
-    // Remove one object
-    lthash.remove_object(b"object2")?;
+    // Remove one item
+    lthash.remove(b"object2")?;
 
-    lthash.add_object(b"object4")?;
-    lthash.add_object(b"object5")?;
+    lthash.add(b"object4")?;
+    lthash.add(b"object5")?;
 
     println!(
-        "Checksum after removing 1 object: {}",
+        "Checksum after removing 1 item: {}",
         hex::encode(lthash.get_checksum())
     );
 
-    // Test commutativity - add objects in different order
+    // Test commutativity - add items in different order
     let mut lthash2 = LtHash16_1024::new()?;
-    lthash2.add_object(b"object3")?;
-    lthash2.add_object(b"object1")?;
-    lthash2.add_object(b"object5")?;
-    lthash2.add_object(b"object4")?;
-    lthash2.add_object(b"object6")?;
-    lthash2.remove_object(b"object6")?;
+    lthash2.add(b"object3")?;
+    lthash2.add(b"object1")?;
+    lthash2.add(b"object5")?;
+    lthash2.add(b"object4")?;
+    lthash2.add(b"object6")?;
+    lthash2.remove(b"object6")?;
 
     println!(
         "Second hash with same objects: {}",

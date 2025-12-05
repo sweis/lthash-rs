@@ -22,10 +22,10 @@
 //! use lthash::LtHash16_1024;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut hash1 = LtHash16_1024::new()?;
-//! hash1.add_object(b"file1")?;
+//! hash1.add(b"file1")?;
 //!
 //! let mut hash2 = LtHash16_1024::new()?;
-//! hash2.add_object(b"file2")?;
+//! hash2.add(b"file2")?;
 //!
 //! let combined = hash1 + hash2; // Equivalent to hashing both files together
 //! # Ok(())
@@ -67,10 +67,10 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
-#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
-use crate::blake3_xof::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 use crate::blake2xb::Blake2xb;
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+use crate::blake3_xof::Blake3Xof;
 use crate::error::LtHashError;
 use zeroize::Zeroize;
 
@@ -105,7 +105,7 @@ pub struct LtHash<const B: usize, const N: usize> {
     checksum: Vec<u8>,
     /// Optional cryptographic key for authenticated hashing (derived to 32 bytes)
     key: Option<Vec<u8>>,
-    /// Pre-allocated scratch buffer to avoid allocations in add_object/remove_object
+    /// Pre-allocated scratch buffer to avoid allocations in add/remove
     scratch: Vec<u8>,
 }
 
@@ -258,20 +258,20 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     }
 
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        self.hash_object_into_scratch(data)?;
+    pub fn add(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
+        self.hash_into_scratch(data)?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
     #[must_use = "this returns a Result that must be checked"]
-    pub fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        self.hash_object_into_scratch(data)?;
+    pub fn remove(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
+        self.hash_into_scratch(data)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
-    /// Add an object to the hash by streaming from a reader.
+    /// Add data to the hash by streaming from a reader.
     ///
     /// This is the preferred method for large files as it processes data in
     /// chunks without loading the entire file into memory.
@@ -283,35 +283,29 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     ///
     /// let mut hash = LtHash16_1024::new().unwrap();
     /// let file = File::open("large_file.bin").unwrap();
-    /// hash.add_object_stream(file).unwrap();
+    /// hash.add_stream(file).unwrap();
     /// ```
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add_object_stream<R: std::io::Read>(
-        &mut self,
-        reader: R,
-    ) -> Result<&mut Self, LtHashError> {
+    pub fn add_stream<R: std::io::Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError> {
         self.hash_reader_into_scratch(reader)?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
-    /// Remove an object from the hash by streaming from a reader.
+    /// Remove data from the hash by streaming from a reader.
     ///
     /// This is the preferred method for large files as it processes data in
     /// chunks without loading the entire file into memory.
     #[must_use = "this returns a Result that must be checked"]
-    pub fn remove_object_stream<R: std::io::Read>(
-        &mut self,
-        reader: R,
-    ) -> Result<&mut Self, LtHashError> {
+    pub fn remove_stream<R: std::io::Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError> {
         self.hash_reader_into_scratch(reader)?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
-    /// Hash multiple objects in parallel and add them to this hash.
+    /// Hash multiple items in parallel and add them to this hash.
     ///
-    /// This method uses rayon to hash each object in a separate thread,
+    /// This method uses rayon to hash each item in a separate thread,
     /// then combines results using parallel tree reduction. Since LtHash is
     /// homomorphic, the order of addition doesn't matter, making this safe
     /// for parallel execution.
@@ -321,22 +315,22 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// use lthash::LtHash16_1024;
     ///
     /// let mut hash = LtHash16_1024::new().unwrap();
-    /// let objects: Vec<&[u8]> = vec![b"file1", b"file2", b"file3"];
-    /// hash.add_objects_parallel(&objects).unwrap();
+    /// let items: Vec<&[u8]> = vec![b"file1", b"file2", b"file3"];
+    /// hash.add_parallel(&items).unwrap();
     /// ```
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add_objects_parallel(&mut self, objects: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+    pub fn add_parallel(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
         let key = self.key.clone();
 
-        let combined: Result<Self, LtHashError> = objects
+        let combined: Result<Self, LtHashError> = items
             .par_iter()
             .map(|data| {
                 let mut h = Self::new()?;
                 if let Some(ref k) = key {
                     h.key = Some(k.clone());
                 }
-                h.add_object(data)?;
+                h.add(data)?;
                 Ok(h)
             })
             .try_reduce(
@@ -369,11 +363,11 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     ///     File::open("file2.bin").unwrap(),
     ///     File::open("file3.bin").unwrap(),
     /// ];
-    /// hash.add_readers_parallel(files).unwrap();
+    /// hash.add_streams_parallel(files).unwrap();
     /// ```
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add_readers_parallel<R: std::io::Read + Send>(
+    pub fn add_streams_parallel<R: std::io::Read + Send>(
         &mut self,
         readers: Vec<R>,
     ) -> Result<&mut Self, LtHashError> {
@@ -386,7 +380,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 if let Some(ref k) = key {
                     h.key = Some(k.clone());
                 }
-                h.add_object_stream(reader)?;
+                h.add_stream(reader)?;
                 Ok(h)
             })
             .try_reduce(
@@ -401,29 +395,29 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
-    /// Create a new LtHash by hashing multiple objects in parallel.
+    /// Create a new LtHash by hashing multiple items in parallel.
     ///
     /// This is a convenience method equivalent to creating a new hash
-    /// and calling `add_objects_parallel`.
+    /// and calling `add_parallel`.
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn from_objects_parallel(objects: &[&[u8]]) -> Result<Self, LtHashError> {
+    pub fn from_parallel(items: &[&[u8]]) -> Result<Self, LtHashError> {
         let mut hash = Self::new()?;
-        hash.add_objects_parallel(objects)?;
+        hash.add_parallel(items)?;
         Ok(hash)
     }
 
     /// Create a new LtHash by hashing multiple readers in parallel.
     ///
     /// This is a convenience method equivalent to creating a new hash
-    /// and calling `add_readers_parallel`.
+    /// and calling `add_streams_parallel`.
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn from_readers_parallel<R: std::io::Read + Send>(
+    pub fn from_streams_parallel<R: std::io::Read + Send>(
         readers: Vec<R>,
     ) -> Result<Self, LtHashError> {
         let mut hash = Self::new()?;
-        hash.add_readers_parallel(readers)?;
+        hash.add_streams_parallel(readers)?;
         Ok(hash)
     }
 
@@ -455,7 +449,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     }
 
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
-    fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
+    fn hash_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
         let key = self.key.as_deref().unwrap_or(&[]);
         Blake3Xof::hash(&mut self.scratch, data, key, &[], &[])?;
         if Self::has_padding_bits() {
@@ -465,7 +459,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     }
 
     #[cfg(feature = "folly-compat")]
-    fn hash_object_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
+    fn hash_into_scratch(&mut self, data: &[u8]) -> Result<(), LtHashError> {
         let key = self.key.as_deref().unwrap_or(&[]);
         Blake2xb::hash(&mut self.scratch, data, key, &[], &[])?;
         if Self::has_padding_bits() {

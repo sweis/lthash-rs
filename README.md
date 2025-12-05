@@ -35,11 +35,11 @@ cat myfile.txt | lthash -
 # Add files to a hash (piping)
 lthash file1.txt | lthash add - file2.txt | lthash add - file3.txt
 
-# Subtract a file's contribution
-lthash sub "$HASH" removed_file.txt
+# Remove a file's contribution
+lthash remove "$HASH" removed_file.txt
 
 # Verify homomorphic property: hash(a) + hash(b) - hash(b) == hash(a)
-lthash a.txt | lthash add - b.txt | lthash sub - b.txt
+lthash a.txt | lthash add - b.txt | lthash remove - b.txt
 ```
 
 ### Directory Hashing Example
@@ -86,19 +86,19 @@ fn main() -> Result<(), LtHashError> {
     // Homomorphic property: order of operations doesn't matter
     // H({a,b}) = H({b,a}) = H(a) + H(b) = H(b) + H(a)
     let mut hash_ab = LtHash16_1024::new()?;
-    hash_ab.add_object(b"a")?.add_object(b"b")?;
+    hash_ab.add(b"a")?.add(b"b")?;
 
     let mut hash_ba = LtHash16_1024::new()?;
-    hash_ba.add_object(b"b")?.add_object(b"a")?;
+    hash_ba.add(b"b")?.add(b"a")?;
 
     assert_eq!(hash_ab, hash_ba);  // Same result regardless of order
 
     // Combining separate hashes gives the same result
     let mut hash_a = LtHash16_1024::new()?;
-    hash_a.add_object(b"a")?;
+    hash_a.add(b"a")?;
 
     let mut hash_b = LtHash16_1024::new()?;
-    hash_b.add_object(b"b")?;
+    hash_b.add(b"b")?;
 
     let combined = hash_a.clone() + hash_b.clone();
     assert_eq!(combined, hash_ab);  // H(a) + H(b) = H({a,b})
@@ -109,7 +109,7 @@ fn main() -> Result<(), LtHashError> {
 
     // Fallible methods for error handling (no panic on key mismatch)
     let mut hash1 = LtHash16_1024::new()?;
-    hash1.add_object(b"data")?;
+    hash1.add(b"data")?;
     hash1.try_add(&hash_a)?;
     hash1.try_sub(&hash_a)?;
 
@@ -123,7 +123,7 @@ fn main() -> Result<(), LtHashError> {
 let mut hash = LtHash16_1024::new()?;
 // Key material is run through BLAKE3 KDF to derive a 32-byte key
 hash.set_key(b"any-length-key-material")?;
-hash.add_object(b"sensitive data")?;
+hash.add(b"sensitive data")?;
 // Key is securely zeroed on drop or clear_key()
 ```
 
@@ -140,16 +140,16 @@ impl LtHash<B, N> {
     fn with_checksum(checksum: &[u8]) -> Result<Self, LtHashError>;
 
     // In-memory operations
-    fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
-    fn remove_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
+    fn add(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
+    fn remove(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
 
     // Streaming operations (for large files)
-    fn add_object_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
-    fn remove_object_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
+    fn add_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
+    fn remove_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
 
     // Parallel operations (requires "parallel" feature)
-    fn add_objects_parallel(&mut self, objects: &[&[u8]]) -> Result<&mut Self, LtHashError>;
-    fn add_readers_parallel<R: Read + Send>(&mut self, readers: Vec<R>) -> Result<&mut Self, LtHashError>;
+    fn add_parallel(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError>;
+    fn add_streams_parallel<R: Read + Send>(&mut self, readers: Vec<R>) -> Result<&mut Self, LtHashError>;
 
     fn try_add(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
     fn try_sub(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
@@ -197,7 +197,7 @@ let files: Vec<File> = vec![
     File::open("file2.bin")?,
     File::open("file3.bin")?,
 ];
-let hash = LtHash16_1024::from_readers_parallel(files)?;
+let hash = LtHash16_1024::from_streams_parallel(files)?;
 ```
 
 Since LtHash is homomorphic, the order of operations doesn't matter, making parallel hashing safe. Speedup depends on object size - larger objects (>64KB) benefit most from parallelization.

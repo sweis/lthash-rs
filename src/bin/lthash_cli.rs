@@ -17,8 +17,8 @@
 //! # Add files to an existing hash
 //! lthash add <hash> file1.txt file2.txt ...
 //!
-//! # Subtract files from an existing hash
-//! lthash sub <hash> file1.txt file2.txt ...
+//! # Remove files from an existing hash
+//! lthash remove <hash> file1.txt file2.txt ...
 //!
 //! # Piping: chain operations
 //! lthash file1.txt | lthash add - file2.txt file3.txt
@@ -34,9 +34,9 @@ use std::process;
 const USAGE: &str = r#"lthash - Homomorphic hash tool
 
 USAGE:
-    lthash [FILE...]           Hash one or more files (use '-' for stdin)
-    lthash add HASH [FILE...]  Add files to existing hash
-    lthash sub HASH [FILE...]  Subtract files from existing hash
+    lthash [FILE...]              Hash one or more files (use '-' for stdin)
+    lthash add HASH [FILE...]     Add files to existing hash
+    lthash remove HASH [FILE...]  Remove files from existing hash
 
 ARGUMENTS:
     FILE    File(s) to process (use '-' for stdin, only valid as sole argument)
@@ -56,7 +56,7 @@ EXAMPLES:
     lthash file1.txt | lthash add - file2.txt file3.txt
 
     # Remove files' contribution
-    lthash sub $COMBINED_HASH removed1.txt removed2.txt
+    lthash remove $COMBINED_HASH removed1.txt removed2.txt
 
 FEATURES:
     Build with --features parallel for multi-threaded file hashing
@@ -99,10 +99,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             cmd_add(hash_arg, &file_args)
         }
-        "sub" => {
+        "remove" => {
             if args.len() < 3 {
-                eprintln!("error: 'sub' requires a hash argument");
-                eprintln!("usage: lthash sub HASH [FILE...]");
+                eprintln!("error: 'remove' requires a hash argument");
+                eprintln!("usage: lthash remove HASH [FILE...]");
                 process::exit(1);
             }
             let hash_arg = &args[2];
@@ -111,7 +111,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 vec!["-"]
             };
-            cmd_sub(hash_arg, &file_args)
+            cmd_remove(hash_arg, &file_args)
         }
         _ => {
             // All remaining args are file paths
@@ -142,8 +142,8 @@ fn cmd_add(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
-/// Subtract files' hashes from an existing hash
-fn cmd_sub(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+/// Remove files' hashes from an existing hash
+fn cmd_remove(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let existing_hash = read_hash(hash_arg)?;
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
 
@@ -163,9 +163,9 @@ fn hash_files(file_args: &[&str], add: bool) -> Result<LtHash16_1024, Box<dyn st
         let stdin = io::stdin();
         let reader = stdin.lock();
         if add {
-            hash.add_object_stream(reader)?;
+            hash.add_stream(reader)?;
         } else {
-            hash.remove_object_stream(reader)?;
+            hash.remove_stream(reader)?;
         }
         return Ok(hash);
     }
@@ -199,9 +199,9 @@ fn hash_files_sequential(
             File::open(file_arg).map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
         let reader = BufReader::new(file);
         if add {
-            hash.add_object_stream(reader)?;
+            hash.add_stream(reader)?;
         } else {
-            hash.remove_object_stream(reader)?;
+            hash.remove_stream(reader)?;
         }
     }
 
@@ -226,7 +226,7 @@ fn hash_files_parallel(
     let readers = readers?;
 
     // Hash in parallel
-    let hash = LtHash16_1024::from_readers_parallel(readers)?;
+    let hash = LtHash16_1024::from_streams_parallel(readers)?;
 
     // For subtraction, we need to negate the result
     if !add {
