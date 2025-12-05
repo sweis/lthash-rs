@@ -48,7 +48,7 @@ The `lthash_dir` tool demonstrates LtHash's power for incremental directory hash
 
 ```bash
 # Build the directory hashing tool
-cargo build --release --features parallel
+cargo build --release
 
 # Create a test directory with some files
 mkdir -p test_dir
@@ -189,11 +189,11 @@ See: [Facebook's security analysis (IACR 2019/227)](https://eprint.iacr.org/2019
 
 ## Parallel Processing
 
-For hashing multiple files concurrently, enable the `parallel` feature:
+Parallel hashing is enabled by default. To disable it (for smaller binary size):
 
 ```toml
 [dependencies]
-lthash = { version = "0.1", features = ["parallel"] }
+lthash = { version = "0.1", default-features = false, features = ["blake3-backend"] }
 ```
 
 ```rust
