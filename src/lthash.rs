@@ -262,16 +262,36 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         self.checksum.iter().all(|&b| b == 0)
     }
 
+    /// Add data to this hash.
+    ///
+    /// Accepts any type that can be converted to a byte slice, including:
+    /// - `&[u8]` - byte slices
+    /// - `&str` and `String` - strings
+    /// - `Vec<u8>` - byte vectors
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// hash.add(b"bytes").unwrap();
+    /// hash.add("string").unwrap();
+    /// hash.add(&vec![1u8, 2, 3]).unwrap();
+    /// ```
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        self.hash_into_scratch(data)?;
+    pub fn add<T: AsRef<[u8]>>(&mut self, data: T) -> Result<&mut Self, LtHashError> {
+        self.hash_into_scratch(data.as_ref())?;
         Self::math_add(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
 
+    /// Remove data from this hash.
+    ///
+    /// Accepts any type that can be converted to a byte slice.
+    /// The data must have been previously added for the result to be meaningful.
     #[must_use = "this returns a Result that must be checked"]
-    pub fn remove(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
-        self.hash_into_scratch(data)?;
+    pub fn remove<T: AsRef<[u8]>>(&mut self, data: T) -> Result<&mut Self, LtHashError> {
+        self.hash_into_scratch(data.as_ref())?;
         Self::math_subtract(&mut self.checksum, &self.scratch)?;
         Ok(self)
     }
@@ -432,17 +452,44 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// by addition (reduce). When the `parallel` feature is enabled, this
     /// uses parallel processing for better performance.
     ///
+    /// Accepts a slice of any type that can be converted to bytes.
+    ///
     /// # Example
     /// ```no_run
     /// use lthash::LtHash16_1024;
     ///
     /// let mut hash = LtHash16_1024::new().unwrap();
     /// hash.add_all(&[b"file1", b"file2", b"file3"]).unwrap();
+    /// hash.add_all(&["string1", "string2"]).unwrap();
     /// ```
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
-        self.add_parallel(items)
+    pub fn add_all<T: AsRef<[u8]> + Sync>(
+        &mut self,
+        items: &[T],
+    ) -> Result<&mut Self, LtHashError> {
+        let key = self.key.clone();
+
+        let combined: Result<Self, LtHashError> = items
+            .par_iter()
+            .map(|data| {
+                let mut h = Self::new()?;
+                if let Some(ref k) = key {
+                    h.key = Some(k.clone());
+                }
+                h.add(data.as_ref())?;
+                Ok(h)
+            })
+            .try_reduce(
+                || Self::new().expect("Failed to create empty LtHash"),
+                |mut a, b| {
+                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Ok(a)
+                },
+            );
+
+        Self::math_add(&mut self.checksum, &combined?.checksum)?;
+        Ok(self)
     }
 
     /// Add multiple items to this hash sequentially.
@@ -451,9 +498,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// enable the `parallel` feature.
     #[cfg(not(feature = "parallel"))]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn add_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+    pub fn add_all<T: AsRef<[u8]>>(&mut self, items: &[T]) -> Result<&mut Self, LtHashError> {
         for item in items {
-            self.add(item)?;
+            self.add(item.as_ref())?;
         }
         Ok(self)
     }
@@ -464,17 +511,22 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// and subtracted from this hash (reduce). When the `parallel` feature
     /// is enabled, this uses parallel processing for better performance.
     ///
+    /// Accepts a slice of any type that can be converted to bytes.
+    ///
     /// # Example
     /// ```no_run
     /// use lthash::LtHash16_1024;
     ///
     /// let mut hash = LtHash16_1024::new().unwrap();
-    /// hash.add_all(&[b"a", b"b", b"c"]).unwrap();
-    /// hash.remove_all(&[b"a", b"b"]).unwrap();  // Now contains only "c"
+    /// hash.add_all(&["a", "b", "c"]).unwrap();
+    /// hash.remove_all(&["a", "b"]).unwrap();  // Now contains only "c"
     /// ```
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn remove_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+    pub fn remove_all<T: AsRef<[u8]> + Sync>(
+        &mut self,
+        items: &[T],
+    ) -> Result<&mut Self, LtHashError> {
         let key = self.key.clone();
 
         let combined: Result<Self, LtHashError> = items
@@ -484,7 +536,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 if let Some(ref k) = key {
                     h.key = Some(k.clone());
                 }
-                h.add(data)?;
+                h.add(data.as_ref())?;
                 Ok(h)
             })
             .try_reduce(
@@ -505,9 +557,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// enable the `parallel` feature.
     #[cfg(not(feature = "parallel"))]
     #[must_use = "this returns a Result that must be checked"]
-    pub fn remove_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+    pub fn remove_all<T: AsRef<[u8]>>(&mut self, items: &[T]) -> Result<&mut Self, LtHashError> {
         for item in items {
-            self.remove(item)?;
+            self.remove(item.as_ref())?;
         }
         Ok(self)
     }

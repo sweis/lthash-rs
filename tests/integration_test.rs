@@ -333,7 +333,8 @@ fn test_add_all_remove_all() -> Result<(), LtHashError> {
     // remove_all should work correctly
     let mut hash3 = LtHash16_1024::new()?;
     hash3.add_all(&items)?;
-    hash3.remove_all(&[b"alpha", b"beta"])?;
+    let to_remove: Vec<&[u8]> = vec![b"alpha", b"beta"];
+    hash3.remove_all(&to_remove)?;
 
     let mut hash4 = LtHash16_1024::new()?;
     hash4.add(b"gamma")?;
