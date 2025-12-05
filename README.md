@@ -4,7 +4,7 @@ A Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Use
 
 ## Warning
 
-This is vibe coded by Claude Code. A human has not really even looked at it. But it passes the tests and generates the same bytes as the Facebook Folly C++ implementation. Don't trust it or use it for anything as is. It was just done for fun.
+This is vibe coded by Claude Code. A human has not really even looked at it. It generates the same bytes as the Facebook Folly C++ implementation and Solana's Blake3 version. Trust it at your own risk.
 
 ## Features
 
