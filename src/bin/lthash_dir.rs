@@ -2,16 +2,69 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
 use rayon::prelude::*;
 use std::fs::{self, File};
-use std::io::BufReader;
+use std::io::{BufReader, Write};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 struct Args {
     directory: String,
     recursive: bool,
     include_hidden: bool,
+    progress: bool,
+}
+
+/// Thread-safe progress tracking
+struct Progress {
+    files_processed: AtomicUsize,
+    dirs_processed: AtomicUsize,
+    bytes_processed: AtomicU64,
+    enabled: bool,
+}
+
+impl Progress {
+    fn new(enabled: bool) -> Self {
+        Progress {
+            files_processed: AtomicUsize::new(0),
+            dirs_processed: AtomicUsize::new(0),
+            bytes_processed: AtomicU64::new(0),
+            enabled,
+        }
+    }
+
+    fn add_files(&self, count: usize, bytes: u64) {
+        if self.enabled {
+            self.files_processed.fetch_add(count, Ordering::Relaxed);
+            self.bytes_processed.fetch_add(bytes, Ordering::Relaxed);
+            self.print_progress();
+        }
+    }
+
+    fn add_dir(&self) {
+        if self.enabled {
+            self.dirs_processed.fetch_add(1, Ordering::Relaxed);
+            self.print_progress();
+        }
+    }
+
+    fn print_progress(&self) {
+        let files = self.files_processed.load(Ordering::Relaxed);
+        let dirs = self.dirs_processed.load(Ordering::Relaxed);
+        let bytes = self.bytes_processed.load(Ordering::Relaxed);
+        let mb = bytes as f64 / 1_000_000.0;
+
+        eprint!("\r\x1b[K  Processing: {} files, {} dirs, {:.1} MB", files, dirs, mb);
+        let _ = std::io::stderr().flush();
+    }
+
+    fn finish(&self) {
+        if self.enabled {
+            eprintln!();
+        }
+    }
 }
 
 struct Stats {
@@ -56,16 +109,18 @@ fn parse_args() -> Args {
     let mut directory = ".".to_string();
     let mut recursive = false;
     let mut include_hidden = false;
+    let mut progress = false;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "-r" | "--recursive" => recursive = true,
+            "-p" | "--progress" => progress = true,
             "--hidden" => include_hidden = true,
             arg if !arg.starts_with('-') => directory = arg.to_string(),
             other => {
                 eprintln!("unknown option: {}", other);
-                eprintln!("usage: lthash_dir [-r] [--hidden] [directory]");
+                eprintln!("usage: lthash_dir [-r] [-p] [--hidden] [directory]");
                 std::process::exit(1);
             }
         }
@@ -76,17 +131,21 @@ fn parse_args() -> Args {
         directory,
         recursive,
         include_hidden,
+        progress,
     }
 }
 
 fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let start = Instant::now();
+    let progress = Arc::new(Progress::new(args.progress));
 
     let (hash, stats) = if args.recursive {
-        hash_directory_recursive(&args.directory, args.include_hidden)?
+        hash_directory_recursive(&args.directory, args.include_hidden, &progress)?
     } else {
-        hash_directory_flat(&args.directory, args.include_hidden)?
+        hash_directory_flat(&args.directory, args.include_hidden, &progress)?
     };
+
+    progress.finish();
 
     let total_time = start.elapsed();
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
@@ -129,6 +188,7 @@ fn is_hidden(path: &Path) -> bool {
 fn hash_directory_flat(
     dir: &str,
     include_hidden: bool,
+    progress: &Arc<Progress>,
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
     let files = collect_files(dir, include_hidden)?;
     let files_found = files.len();
@@ -162,6 +222,7 @@ fn hash_directory_flat(
     }
 
     let hash = LtHash16_1024::from_streams_parallel(readers)?;
+    progress.add_files(files_found - skipped, total_bytes);
 
     Ok((
         hash,
@@ -178,17 +239,19 @@ fn hash_directory_flat(
 fn hash_directory_recursive(
     dir: &str,
     include_hidden: bool,
+    progress: &Arc<Progress>,
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
     let root = Path::new(dir)
         .canonicalize()
         .map_err(|e| format!("cannot resolve '{}': {}", dir, e))?;
 
-    hash_dir_recursive_inner(&root, include_hidden)
+    hash_dir_recursive_inner(&root, include_hidden, progress)
 }
 
 fn hash_dir_recursive_inner(
     dir: &Path,
     include_hidden: bool,
+    progress: &Arc<Progress>,
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
     let mut files = Vec::new();
     let mut subdirs = Vec::new();
@@ -250,7 +313,9 @@ fn hash_dir_recursive_inner(
 
     let mut dir_hash = if !readers.is_empty() {
         stats.files_hashed = readers.len();
-        LtHash16_1024::from_streams_parallel(readers)?
+        let hash = LtHash16_1024::from_streams_parallel(readers)?;
+        progress.add_files(stats.files_hashed, bytes);
+        hash
     } else {
         LtHash16_1024::new()?
     };
@@ -258,7 +323,7 @@ fn hash_dir_recursive_inner(
     // Recursively hash subdirectories in parallel
     let subdir_results: Vec<_> = subdirs
         .par_iter()
-        .map(|subdir| hash_dir_recursive_inner(subdir, include_hidden))
+        .map(|subdir| hash_dir_recursive_inner(subdir, include_hidden, progress))
         .collect();
 
     // Merge results from parallel subdirectory processing
@@ -269,6 +334,7 @@ fn hash_dir_recursive_inner(
         dir_hash.add(subdir_hash.checksum())?;
     }
 
+    progress.add_dir();
     Ok((dir_hash, stats))
 }
 
