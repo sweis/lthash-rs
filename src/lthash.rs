@@ -248,6 +248,15 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         self.checksum.fill(0);
     }
 
+    /// Check if the hash state is all zeros (empty/identity state).
+    ///
+    /// Returns true if no objects have been added, or if all added objects
+    /// have been subsequently removed.
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        self.checksum.iter().all(|&b| b == 0)
+    }
+
     #[must_use = "this returns a Result that must be checked"]
     pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
         self.hash_object_into_scratch(data)?;
@@ -421,6 +430,17 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     #[must_use]
     pub fn get_checksum(&self) -> &[u8] {
         &self.checksum
+    }
+
+    /// Returns a compact 32-byte BLAKE3 digest of the full checksum state.
+    ///
+    /// This is useful when you need a fixed-size hash for storage or comparison,
+    /// rather than the full 2KB+ checksum. Note that this digest cannot be used
+    /// for homomorphic operations - use `get_checksum()` for that.
+    #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+    #[must_use]
+    pub fn digest(&self) -> [u8; 32] {
+        blake3::hash(&self.checksum).into()
     }
 
     #[must_use = "this returns a Result that must be checked"]
