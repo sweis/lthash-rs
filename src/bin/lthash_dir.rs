@@ -3,6 +3,8 @@ use lthash::LtHash16_1024;
 use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::BufReader;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -319,6 +321,18 @@ fn open_files(files: &[PathBuf]) -> (Vec<BufReader<File>>, u64, usize) {
                 if let Ok(metadata) = file.metadata() {
                     total_bytes += metadata.len();
                 }
+
+                // Hint to kernel: sequential access, don't keep in cache after reading
+                #[cfg(unix)]
+                unsafe {
+                    libc::posix_fadvise(
+                        file.as_raw_fd(),
+                        0,
+                        0, // 0 means entire file
+                        libc::POSIX_FADV_SEQUENTIAL | libc::POSIX_FADV_NOREUSE,
+                    );
+                }
+
                 readers.push(BufReader::new(file));
             }
             Err(e) => {
