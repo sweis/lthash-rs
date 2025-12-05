@@ -564,6 +564,59 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
+    /// Add items from an iterator to this hash.
+    ///
+    /// This method accepts any iterator that yields items convertible to bytes.
+    /// Items are processed sequentially.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// let items = vec!["a", "b", "c"];
+    /// hash.add_iter(items.iter()).unwrap();
+    ///
+    /// // Works with any iterator
+    /// hash.add_iter((0..10).map(|i| format!("item{}", i))).unwrap();
+    /// ```
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn add_iter<I, T>(&mut self, iter: I) -> Result<&mut Self, LtHashError>
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<[u8]>,
+    {
+        for item in iter {
+            self.add(item.as_ref())?;
+        }
+        Ok(self)
+    }
+
+    /// Remove items from an iterator from this hash.
+    ///
+    /// This method accepts any iterator that yields items convertible to bytes.
+    /// Items are processed sequentially.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// hash.add_iter(["a", "b", "c", "d"]).unwrap();
+    /// hash.remove_iter(["a", "b"]).unwrap();  // Now contains {c, d}
+    /// ```
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn remove_iter<I, T>(&mut self, iter: I) -> Result<&mut Self, LtHashError>
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<[u8]>,
+    {
+        for item in iter {
+            self.remove(item.as_ref())?;
+        }
+        Ok(self)
+    }
+
     /// Returns the internal checksum state as a byte slice.
     #[must_use]
     pub fn checksum(&self) -> &[u8] {
