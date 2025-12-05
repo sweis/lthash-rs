@@ -232,7 +232,9 @@ cargo test --features folly-compat  # Test with Blake2xb
 
 - [Facebook Engineering Blog](https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/)
 - [IACR ePrint 2019/227](https://eprint.iacr.org/2019/227)
-- [Bellare-Micciancio Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
+- [Bellare-Micciancio Paper](https://cseweb.ucsd.edu/~mihir/papers/inchash.pdf)
+- [Commonware Cryptography Rust Implementation](https://docs.rs/commonware-cryptography/latest/commonware_cryptography/lthash/index.html)
+- [lukechampine/lthash Go Implementation](https://github.com/lukechampine/lthash)
 
 ## License
 
