@@ -39,7 +39,7 @@ fn test_lthash_basic() -> Result<(), LtHashError> {
     let mut hash = LtHash16_1024::new()?;
     hash.add(b"test")?;
 
-    let checksum = hash.get_checksum();
+    let checksum = hash.checksum();
     assert_eq!(checksum.len(), LtHash16_1024::checksum_size_bytes());
     assert_ne!(checksum, vec![0u8; checksum.len()]); // Should not be all zeros
     Ok(())
@@ -120,7 +120,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
             hash.add(vector.input)?;
         }
 
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -145,7 +145,7 @@ fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
         if !vector.input.is_empty() {
             hash.add(vector.input)?;
         }
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -162,7 +162,7 @@ fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
         if !vector.input.is_empty() {
             hash.add(vector.input)?;
         }
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -179,7 +179,7 @@ fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
         if !vector.input.is_empty() {
             hash.add(vector.input)?;
         }
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -202,11 +202,7 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
     hash1.add(b"a")?.add(b"b")?;
     hash2.add(b"b")?.add(b"a")?;
 
-    assert_eq!(
-        hash1.get_checksum(),
-        hash2.get_checksum(),
-        "Commutativity failed"
-    );
+    assert_eq!(hash1.checksum(), hash2.checksum(), "Commutativity failed");
 
     // Test additive inverse: a+b-a == b
     hash1.remove(b"a")?;
@@ -214,8 +210,8 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
     hash_just_b.add(b"b")?;
 
     assert_eq!(
-        hash1.get_checksum(),
-        hash_just_b.get_checksum(),
+        hash1.checksum(),
+        hash_just_b.checksum(),
         "Additive inverse failed"
     );
 
@@ -230,8 +226,8 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
 
     let h_sum = h_a + h_b;
     assert_eq!(
-        h_sum.get_checksum(),
-        h_ab.get_checksum(),
+        h_sum.checksum(),
+        h_ab.checksum(),
         "Homomorphic addition failed"
     );
 
@@ -252,8 +248,8 @@ fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
     hash_stream.add_stream(std::io::Cursor::new(&data))?;
 
     assert_eq!(
-        hash_mem.get_checksum(),
-        hash_stream.get_checksum(),
+        hash_mem.checksum(),
+        hash_stream.checksum(),
         "Streaming and in-memory hashing produced different results"
     );
 
@@ -267,16 +263,16 @@ fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
         .remove_stream(std::io::Cursor::new(&data))?;
 
     assert_eq!(
-        hash_mem2.get_checksum(),
-        hash_stream2.get_checksum(),
+        hash_mem2.checksum(),
+        hash_stream2.checksum(),
         "Streaming remove produced different results"
     );
 
     // Both should be back to zero (empty set)
     let empty_hash = LtHash16_1024::new()?;
     assert_eq!(
-        hash_stream2.get_checksum(),
-        empty_hash.get_checksum(),
+        hash_stream2.checksum(),
+        empty_hash.checksum(),
         "add then remove should equal empty hash"
     );
 
@@ -296,7 +292,7 @@ fn test_solana_interoperability() -> Result<(), LtHashError> {
         hash.add(vector.input)?;
 
         // Verify internal state matches (first 32 bytes = first 16 u16 values)
-        let checksum = hash.get_checksum();
+        let checksum = hash.checksum();
 
         // Convert first 32 bytes to u16 array (little-endian)
         let mut actual_u16s = [0u16; 16];
@@ -329,8 +325,8 @@ fn test_add_all_remove_all() -> Result<(), LtHashError> {
     }
 
     assert_eq!(
-        hash1.get_checksum(),
-        hash2.get_checksum(),
+        hash1.checksum(),
+        hash2.checksum(),
         "add_all should equal sequential adds"
     );
 
@@ -343,8 +339,8 @@ fn test_add_all_remove_all() -> Result<(), LtHashError> {
     hash4.add(b"gamma")?;
 
     assert_eq!(
-        hash3.get_checksum(),
-        hash4.get_checksum(),
+        hash3.checksum(),
+        hash4.checksum(),
         "remove_all should leave only remaining items"
     );
 
@@ -356,8 +352,8 @@ fn test_add_all_remove_all() -> Result<(), LtHashError> {
     hash6.add(b"b")?.add(b"c")?;
 
     assert_eq!(
-        hash5.get_checksum(),
-        hash6.get_checksum(),
+        hash5.checksum(),
+        hash6.checksum(),
         "chained add_all/remove_all should work"
     );
 
@@ -388,16 +384,16 @@ fn test_parallel_equals_sequential() -> Result<(), LtHashError> {
     hash_par.add_parallel(&objects)?;
 
     assert_eq!(
-        hash_seq.get_checksum(),
-        hash_par.get_checksum(),
+        hash_seq.checksum(),
+        hash_par.checksum(),
         "Parallel and sequential hashing produced different results"
     );
 
     // Also test from_parallel
     let hash_par2 = LtHash16_1024::from_parallel(&objects)?;
     assert_eq!(
-        hash_seq.get_checksum(),
-        hash_par2.get_checksum(),
+        hash_seq.checksum(),
+        hash_par2.checksum(),
         "from_parallel produced different results"
     );
 
@@ -407,8 +403,8 @@ fn test_parallel_equals_sequential() -> Result<(), LtHashError> {
 
     let hash_par_stream = LtHash16_1024::from_streams_parallel(readers)?;
     assert_eq!(
-        hash_seq.get_checksum(),
-        hash_par_stream.get_checksum(),
+        hash_seq.checksum(),
+        hash_par_stream.checksum(),
         "Parallel streaming produced different results"
     );
 

@@ -512,8 +512,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
+    /// Returns the internal checksum state as a byte slice.
     #[must_use]
-    pub fn get_checksum(&self) -> &[u8] {
+    pub fn checksum(&self) -> &[u8] {
         &self.checksum
     }
 
@@ -521,22 +522,26 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     ///
     /// This is useful when you need a fixed-size hash for storage or comparison,
     /// rather than the full 2KB+ checksum. Note that this digest cannot be used
-    /// for homomorphic operations - use `get_checksum()` for that.
+    /// for homomorphic operations - use `checksum()` for that.
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
     #[must_use]
     pub fn digest(&self) -> [u8; 32] {
         blake3::hash(&self.checksum).into()
     }
 
+    /// Compare this hash's checksum with a raw byte slice using constant-time comparison.
+    ///
+    /// Returns `Ok(true)` if equal, `Ok(false)` if not equal, or an error if
+    /// the provided slice has the wrong length.
     #[must_use = "this returns a Result that must be checked"]
-    pub fn checksum_equals(&self, other_checksum: &[u8]) -> Result<bool, LtHashError> {
-        if other_checksum.len() != Self::checksum_size_bytes() {
+    pub fn checksum_eq(&self, other: &[u8]) -> Result<bool, LtHashError> {
+        if other.len() != Self::checksum_size_bytes() {
             return Err(LtHashError::InvalidChecksumSize {
                 expected: Self::checksum_size_bytes(),
-                actual: other_checksum.len(),
+                actual: other.len(),
             });
         }
-        Ok(constant_time_eq(&self.checksum, other_checksum))
+        Ok(constant_time_eq(&self.checksum, other))
     }
 
     #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]

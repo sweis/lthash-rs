@@ -26,7 +26,7 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 
 ## Security Measures (Implemented)
 
-1. **Constant-time comparison** in `checksum_equals()` and `PartialEq`
+1. **Constant-time comparison** in `checksum_eq()` and `PartialEq`
 2. **Secure key clearing** using `zeroize` crate (won't be optimized away)
 3. **Secure clearing of intermediate hash** (`h0`, `key_block` in Blake2xb)
 4. **Secure clearing on drop** for all hasher structs and LtHash checksum/scratch

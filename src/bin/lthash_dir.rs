@@ -66,7 +66,7 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let total_time = start.elapsed();
-    let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
+    let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
 
     println!("{}", encoded);
     eprintln!();
@@ -244,7 +244,7 @@ fn hash_dir_recursive_inner(
     // Recursively hash subdirectories and add their checksums
     for subdir in subdirs {
         let subdir_hash = hash_dir_recursive_inner(&subdir, stats, include_hidden)?;
-        dir_hash.add(subdir_hash.get_checksum())?;
+        dir_hash.add(subdir_hash.checksum())?;
         stats.dirs_hashed += 1;
     }
 

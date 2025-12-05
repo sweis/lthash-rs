@@ -82,7 +82,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
                 hash.add(vector.input)?;
             }
 
-            let result = hex_encode(&hash.get_checksum()[..16]); // First 16 bytes
+            let result = hex_encode(&hash.checksum()[..16]); // First 16 bytes
             let passed = result == vector.expected_first_16_bytes;
 
             println!(
@@ -105,7 +105,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
                 hash.add(vector.input)?;
             }
 
-            let result = hex_encode(&hash.get_checksum()[..16]); // First 16 bytes
+            let result = hex_encode(&hash.checksum()[..16]); // First 16 bytes
             let passed = result == vector.expected_first_16_bytes;
 
             println!(
@@ -128,7 +128,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
                 hash.add(vector.input)?;
             }
 
-            let result = hex_encode(&hash.get_checksum()[..16]); // First 16 bytes
+            let result = hex_encode(&hash.checksum()[..16]); // First 16 bytes
             let passed = result == vector.expected_first_16_bytes;
 
             println!(
@@ -151,7 +151,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         hash1.add(b"a")?.add(b"b")?;
         hash2.add(b"b")?.add(b"a")?;
 
-        let commutative = hash1.get_checksum() == hash2.get_checksum();
+        let commutative = hash1.checksum() == hash2.checksum();
         println!(
             "  a+b == b+a (commutativity): {}",
             if commutative { "✓ PASS" } else { "✗ FAIL" }
@@ -162,7 +162,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         let mut hash_just_b = LtHash16_1024::new()?;
         hash_just_b.add(b"b")?;
 
-        let removal_works = hash1.get_checksum() == hash_just_b.get_checksum();
+        let removal_works = hash1.checksum() == hash_just_b.checksum();
         println!(
             "  a+b-a == b (additive inverse): {}",
             if removal_works {
@@ -182,7 +182,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         h_ab.add(b"a")?.add(b"b")?;
 
         let h_sum = h_a + h_b;
-        let homomorphic = h_sum.get_checksum() == h_ab.get_checksum();
+        let homomorphic = h_sum.checksum() == h_ab.checksum();
         println!(
             "  H(a) + H(b) == H(a+b) (homomorphic): {}",
             if homomorphic { "✓ PASS" } else { "✗ FAIL" }

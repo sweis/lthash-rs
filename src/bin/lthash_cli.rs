@@ -124,7 +124,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// Hash one or more files
 fn cmd_hash(file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let hash = hash_files(file_args, true)?;
-    let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
+    let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
     println!("{}", encoded);
     Ok(())
 }
@@ -137,7 +137,7 @@ fn cmd_add(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error:
     let file_hash = hash_files(file_args, true)?;
     hash.try_add(&file_hash)?;
 
-    let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
+    let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
     println!("{}", encoded);
     Ok(())
 }
@@ -150,7 +150,7 @@ fn cmd_remove(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::err
     let file_hash = hash_files(file_args, true)?;
     hash.try_sub(&file_hash)?;
 
-    let encoded = URL_SAFE_NO_PAD.encode(hash.get_checksum());
+    let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
     println!("{}", encoded);
     Ok(())
 }

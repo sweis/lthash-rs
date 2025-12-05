@@ -19,7 +19,7 @@ fn main() -> Result<(), LtHashError> {
 
     println!(
         "Checksum after adding 3 items: {}",
-        hex::encode(lthash.get_checksum())
+        hex::encode(lthash.checksum())
     );
 
     // Remove one item, then add more using chaining
@@ -30,7 +30,7 @@ fn main() -> Result<(), LtHashError> {
 
     println!(
         "Checksum after removing 1 item: {}",
-        hex::encode(lthash.get_checksum())
+        hex::encode(lthash.checksum())
     );
 
     // Test commutativity - add items in different order using chaining
@@ -45,7 +45,7 @@ fn main() -> Result<(), LtHashError> {
 
     println!(
         "Second hash with same objects: {}",
-        hex::encode(lthash2.get_checksum())
+        hex::encode(lthash2.checksum())
     );
 
     if lthash == lthash2 {

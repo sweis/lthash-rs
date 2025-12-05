@@ -41,7 +41,7 @@
 //! hash.remove(b"document1")?;
 //!
 //! // Get the final checksum
-//! let checksum = hash.get_checksum();
+//! let checksum = hash.checksum();
 //!
 //! // Combine hashes from different sources (homomorphic)
 //! let mut hash1 = LtHash16_1024::new()?;

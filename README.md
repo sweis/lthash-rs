@@ -158,7 +158,8 @@ impl LtHash<B, N> {
     fn try_add(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
     fn try_sub(&mut self, other: &Self) -> Result<(), LtHashError>;  // Non-panicking
 
-    fn get_checksum(&self) -> &[u8];
+    fn checksum(&self) -> &[u8];
+    fn checksum_eq(&self, other: &[u8]) -> Result<bool, LtHashError>;  // Constant-time
     fn checksum_size_bytes() -> usize;
 
     fn set_key(&mut self, key: &[u8]) -> Result<(), LtHashError>;  // Any length, KDF-derived

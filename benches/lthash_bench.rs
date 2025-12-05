@@ -155,10 +155,10 @@ fn bench_checksum_compare(c: &mut Criterion) {
     hash1.add(b"same data").unwrap();
     hash2.add(b"same data").unwrap();
 
-    let checksum = hash1.get_checksum().to_vec();
+    let checksum = hash1.checksum().to_vec();
 
-    group.bench_function("16_1024_checksum_equals", |b| {
-        b.iter(|| hash1.checksum_equals(black_box(&checksum)).unwrap());
+    group.bench_function("16_1024_checksum_eq", |b| {
+        b.iter(|| hash1.checksum_eq(black_box(&checksum)).unwrap());
     });
 
     group.bench_function("16_1024_eq", |b| {
