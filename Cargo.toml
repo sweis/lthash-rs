@@ -19,7 +19,7 @@ criterion = "0.5"
 rayon = "1.10"  # Always available for benchmarks
 
 [features]
-default = ["blake3-backend"]
+default = ["blake3-backend", "parallel"]
 blake3-backend = ["blake3"]
 folly-compat = ["libsodium-sys"]  # For Facebook Folly C++ compatibility
 parallel = ["rayon"]  # Enable parallel hashing
