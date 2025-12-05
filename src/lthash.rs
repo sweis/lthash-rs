@@ -426,6 +426,92 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(hash)
     }
 
+    /// Add multiple items to this hash using map-reduce.
+    ///
+    /// Each item is hashed independently (map), then all hashes are combined
+    /// by addition (reduce). When the `parallel` feature is enabled, this
+    /// uses parallel processing for better performance.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// hash.add_all(&[b"file1", b"file2", b"file3"]).unwrap();
+    /// ```
+    #[cfg(feature = "parallel")]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn add_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+        self.add_parallel(items)
+    }
+
+    /// Add multiple items to this hash sequentially.
+    ///
+    /// Each item is hashed and added in order. For parallel processing,
+    /// enable the `parallel` feature.
+    #[cfg(not(feature = "parallel"))]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn add_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+        for item in items {
+            self.add(item)?;
+        }
+        Ok(self)
+    }
+
+    /// Remove multiple items from this hash using map-reduce.
+    ///
+    /// Each item is hashed independently (map), then all hashes are combined
+    /// and subtracted from this hash (reduce). When the `parallel` feature
+    /// is enabled, this uses parallel processing for better performance.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use lthash::LtHash16_1024;
+    ///
+    /// let mut hash = LtHash16_1024::new().unwrap();
+    /// hash.add_all(&[b"a", b"b", b"c"]).unwrap();
+    /// hash.remove_all(&[b"a", b"b"]).unwrap();  // Now contains only "c"
+    /// ```
+    #[cfg(feature = "parallel")]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn remove_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+        let key = self.key.clone();
+
+        let combined: Result<Self, LtHashError> = items
+            .par_iter()
+            .map(|data| {
+                let mut h = Self::new()?;
+                if let Some(ref k) = key {
+                    h.key = Some(k.clone());
+                }
+                h.add(data)?;
+                Ok(h)
+            })
+            .try_reduce(
+                || Self::new().expect("Failed to create empty LtHash"),
+                |mut a, b| {
+                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Ok(a)
+                },
+            );
+
+        Self::math_subtract(&mut self.checksum, &combined?.checksum)?;
+        Ok(self)
+    }
+
+    /// Remove multiple items from this hash sequentially.
+    ///
+    /// Each item is hashed and removed in order. For parallel processing,
+    /// enable the `parallel` feature.
+    #[cfg(not(feature = "parallel"))]
+    #[must_use = "this returns a Result that must be checked"]
+    pub fn remove_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
+        for item in items {
+            self.remove(item)?;
+        }
+        Ok(self)
+    }
+
     #[must_use]
     pub fn get_checksum(&self) -> &[u8] {
         &self.checksum

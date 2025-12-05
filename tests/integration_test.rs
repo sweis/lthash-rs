@@ -315,6 +315,55 @@ fn test_solana_interoperability() -> Result<(), LtHashError> {
     Ok(())
 }
 
+#[test]
+fn test_add_all_remove_all() -> Result<(), LtHashError> {
+    let items: Vec<&[u8]> = vec![b"alpha", b"beta", b"gamma"];
+
+    // add_all should equal sequential adds
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add_all(&items)?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    for item in &items {
+        hash2.add(item)?;
+    }
+
+    assert_eq!(
+        hash1.get_checksum(),
+        hash2.get_checksum(),
+        "add_all should equal sequential adds"
+    );
+
+    // remove_all should work correctly
+    let mut hash3 = LtHash16_1024::new()?;
+    hash3.add_all(&items)?;
+    hash3.remove_all(&[b"alpha", b"beta"])?;
+
+    let mut hash4 = LtHash16_1024::new()?;
+    hash4.add(b"gamma")?;
+
+    assert_eq!(
+        hash3.get_checksum(),
+        hash4.get_checksum(),
+        "remove_all should leave only remaining items"
+    );
+
+    // Chaining should work
+    let mut hash5 = LtHash16_1024::new()?;
+    hash5.add_all(&[b"a", b"b", b"c"])?.remove_all(&[b"a"])?;
+
+    let mut hash6 = LtHash16_1024::new()?;
+    hash6.add(b"b")?.add(b"c")?;
+
+    assert_eq!(
+        hash5.get_checksum(),
+        hash6.get_checksum(),
+        "chained add_all/remove_all should work"
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "parallel")]
 #[test]
 fn test_parallel_equals_sequential() -> Result<(), LtHashError> {

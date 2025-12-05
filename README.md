@@ -139,9 +139,13 @@ impl LtHash<B, N> {
     fn new() -> Result<Self, LtHashError>;
     fn with_checksum(checksum: &[u8]) -> Result<Self, LtHashError>;
 
-    // In-memory operations
+    // In-memory operations (chainable)
     fn add(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
     fn remove(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError>;
+
+    // Batch operations (map-reduce, parallel when feature enabled)
+    fn add_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError>;
+    fn remove_all(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError>;
 
     // Streaming operations (for large files)
     fn add_stream<R: Read>(&mut self, reader: R) -> Result<&mut Self, LtHashError>;
