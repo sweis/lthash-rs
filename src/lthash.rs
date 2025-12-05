@@ -432,6 +432,17 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &self.checksum
     }
 
+    /// Returns a compact 32-byte BLAKE3 digest of the full checksum state.
+    ///
+    /// This is useful when you need a fixed-size hash for storage or comparison,
+    /// rather than the full 2KB+ checksum. Note that this digest cannot be used
+    /// for homomorphic operations - use `get_checksum()` for that.
+    #[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+    #[must_use]
+    pub fn digest(&self) -> [u8; 32] {
+        blake3::hash(&self.checksum).into()
+    }
+
     #[must_use = "this returns a Result that must be checked"]
     pub fn checksum_equals(&self, other_checksum: &[u8]) -> Result<bool, LtHashError> {
         if other_checksum.len() != Self::checksum_size_bytes() {
