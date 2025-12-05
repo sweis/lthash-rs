@@ -148,11 +148,8 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         let mut hash2 = LtHash16_1024::new()?;
 
         // Test: a+b == b+a (commutativity)
-        hash1.add(b"a")?;
-        hash1.add(b"b")?;
-
-        hash2.add(b"b")?;
-        hash2.add(b"a")?;
+        hash1.add(b"a")?.add(b"b")?;
+        hash2.add(b"b")?.add(b"a")?;
 
         let commutative = hash1.get_checksum() == hash2.get_checksum();
         println!(
@@ -182,8 +179,7 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
 
         h_a.add(b"a")?;
         h_b.add(b"b")?;
-        h_ab.add(b"a")?;
-        h_ab.add(b"b")?;
+        h_ab.add(b"a")?.add(b"b")?;
 
         let h_sum = h_a + h_b;
         let homomorphic = h_sum.get_checksum() == h_ab.get_checksum();

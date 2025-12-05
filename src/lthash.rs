@@ -21,6 +21,11 @@
 //! ```no_run
 //! use lthash::LtHash16_1024;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! // Chain multiple operations
+//! let mut hash = LtHash16_1024::new()?;
+//! hash.add(b"file1")?.add(b"file2")?.add(b"file3")?;
+//!
+//! // Or combine separate hashes homomorphically
 //! let mut hash1 = LtHash16_1024::new()?;
 //! hash1.add(b"file1")?;
 //!

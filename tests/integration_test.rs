@@ -199,11 +199,8 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
     let mut hash1 = LtHash16_1024::new()?;
     let mut hash2 = LtHash16_1024::new()?;
 
-    hash1.add(b"a")?;
-    hash1.add(b"b")?;
-
-    hash2.add(b"b")?;
-    hash2.add(b"a")?;
+    hash1.add(b"a")?.add(b"b")?;
+    hash2.add(b"b")?.add(b"a")?;
 
     assert_eq!(
         hash1.get_checksum(),
@@ -229,8 +226,7 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
 
     h_a.add(b"a")?;
     h_b.add(b"b")?;
-    h_ab.add(b"a")?;
-    h_ab.add(b"b")?;
+    h_ab.add(b"a")?.add(b"b")?;
 
     let h_sum = h_a + h_b;
     assert_eq!(
@@ -261,14 +257,14 @@ fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
         "Streaming and in-memory hashing produced different results"
     );
 
-    // Also test remove_stream
+    // Also test remove_stream with chaining
     let mut hash_mem2 = LtHash16_1024::new()?;
-    hash_mem2.add(&data)?;
-    hash_mem2.remove(&data)?;
+    hash_mem2.add(&data)?.remove(&data)?;
 
     let mut hash_stream2 = LtHash16_1024::new()?;
-    hash_stream2.add_stream(std::io::Cursor::new(&data))?;
-    hash_stream2.remove_stream(std::io::Cursor::new(&data))?;
+    hash_stream2
+        .add_stream(std::io::Cursor::new(&data))?
+        .remove_stream(std::io::Cursor::new(&data))?;
 
     assert_eq!(
         hash_mem2.get_checksum(),

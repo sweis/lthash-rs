@@ -35,8 +35,7 @@
 //! let mut hash = LtHash16_1024::new()?;
 //!
 //! // Add some data (order doesn't matter - commutative)
-//! hash.add(b"document1")?;
-//! hash.add(b"document2")?;
+//! hash.add(b"document1")?.add(b"document2")?;
 //!
 //! // Remove data
 //! hash.remove(b"document1")?;
