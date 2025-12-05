@@ -284,6 +284,38 @@ fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
     Ok(())
 }
 
+/// Test interoperability with Solana's BLAKE3-based LtHash implementation.
+///
+/// This verifies that our implementation produces identical internal state to Solana's
+/// lattice-hash crate, enabling cross-platform verification. The test compares the first
+/// 16 u16 values (32 bytes) of the internal checksum state against Solana's test vectors.
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+#[test]
+fn test_solana_interoperability() -> Result<(), LtHashError> {
+    for vector in test_vectors::solana_interop::VECTORS.iter() {
+        let mut hash = LtHash16_1024::new()?;
+        hash.add_object(vector.input)?;
+
+        // Verify internal state matches (first 32 bytes = first 16 u16 values)
+        let checksum = hash.get_checksum();
+
+        // Convert first 32 bytes to u16 array (little-endian)
+        let mut actual_u16s = [0u16; 16];
+        for i in 0..16 {
+            actual_u16s[i] = u16::from_le_bytes([checksum[i * 2], checksum[i * 2 + 1]]);
+        }
+
+        assert_eq!(
+            actual_u16s, vector.expected_first_u16s,
+            "Internal state mismatch for input {:?}. Our implementation produces \
+            different checksum state than Solana's lattice-hash.",
+            vector.name
+        );
+    }
+
+    Ok(())
+}
+
 #[cfg(feature = "parallel")]
 #[test]
 fn test_parallel_equals_sequential() -> Result<(), LtHashError> {

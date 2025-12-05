@@ -247,6 +247,46 @@ pub mod lthash {
     ];
 }
 
+/// Solana/Agave interoperability test vectors
+///
+/// These vectors verify compatibility with Solana's lattice-hash implementation which also
+/// uses BLAKE3. The internal u16 state representation is verified to match Solana's.
+/// Source: https://github.com/anza-xyz/agave/blob/master/lattice-hash/src/lt_hash.rs
+///
+/// Note: The first 32 bytes (16 u16 values) of the internal state have been verified to match
+/// Solana's implementation exactly. This ensures homomorphic operations are compatible.
+pub mod solana_interop {
+    #[derive(Debug, Clone)]
+    pub struct SolanaTestVector {
+        pub name: &'static str,
+        pub input: &'static [u8],
+        /// First 16 u16 values of the LtHash state (little-endian in memory)
+        /// These are verified to match Solana's lattice-hash output exactly.
+        pub expected_first_u16s: [u16; 16],
+    }
+
+    pub const VECTORS: &[SolanaTestVector] = &[
+        SolanaTestVector {
+            name: "hello",
+            input: b"hello",
+            // Verified against Solana's lattice-hash test vectors
+            expected_first_u16s: [
+                0x8fea, 0x3d16, 0x86b3, 0x9282, 0x445e, 0xc591, 0x8de5, 0xb34b,
+                0x6e50, 0xc1f8, 0xb74e, 0x868a, 0x08e9, 0x62c5, 0x674a, 0x0f20,
+            ],
+        },
+        SolanaTestVector {
+            name: "world!",
+            input: b"world!",
+            // Verified against Solana's lattice-hash test vectors
+            expected_first_u16s: [
+                0x56dc, 0x1d98, 0x5420, 0x810d, 0x936f, 0x1011, 0xa2ff, 0x6681,
+                0x637e, 0x9f2c, 0x0024, 0xebd4, 0xe5f2, 0x3382, 0xd48b, 0x209e,
+            ],
+        },
+    ];
+}
+
 /// BLAKE3-based LtHash test vectors (default backend)
 ///
 /// These vectors are used to detect regressions when using the BLAKE3 backend.
