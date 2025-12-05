@@ -45,6 +45,22 @@ fn test_lthash_basic() -> Result<(), LtHashError> {
     Ok(())
 }
 
+#[test]
+fn test_is_zero() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    assert!(hash.is_zero(), "New hash should be zero");
+
+    hash.add_object(b"test")?;
+    assert!(!hash.is_zero(), "Hash with data should not be zero");
+
+    hash.remove_object(b"test")?;
+    assert!(hash.is_zero(), "Hash after removing all data should be zero");
+
+    hash.reset();
+    assert!(hash.is_zero(), "Hash after reset should be zero");
+    Ok(())
+}
+
 #[cfg(feature = "folly-compat")]
 #[test]
 fn test_blake2xb_vectors() -> Result<(), LtHashError> {

@@ -248,6 +248,15 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         self.checksum.fill(0);
     }
 
+    /// Check if the hash state is all zeros (empty/identity state).
+    ///
+    /// Returns true if no objects have been added, or if all added objects
+    /// have been subsequently removed.
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        self.checksum.iter().all(|&b| b == 0)
+    }
+
     #[must_use = "this returns a Result that must be checked"]
     pub fn add_object(&mut self, data: &[u8]) -> Result<&mut Self, LtHashError> {
         self.hash_object_into_scratch(data)?;
