@@ -11,6 +11,9 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 base64 = "0.22"
 rayon = { version = "1.10", optional = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 criterion = "0.5"
 rayon = "1.10"  # Always available for benchmarks

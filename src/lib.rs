@@ -34,22 +34,21 @@
 //! // Create a new hash instance
 //! let mut hash = LtHash16_1024::new()?;
 //!
-//! // Add some objects (order doesn't matter - commutative)
-//! hash.add_object(b"document1")?;
-//! hash.add_object(b"document2")?;
+//! // Add some data (order doesn't matter - commutative)
+//! hash.add(b"document1")?.add(b"document2")?;
 //!
-//! // Remove an object
-//! hash.remove_object(b"document1")?;
+//! // Remove data
+//! hash.remove(b"document1")?;
 //!
 //! // Get the final checksum
-//! let checksum = hash.get_checksum();
+//! let checksum = hash.checksum();
 //!
 //! // Combine hashes from different sources (homomorphic)
 //! let mut hash1 = LtHash16_1024::new()?;
-//! hash1.add_object(b"file1")?;
+//! hash1.add(b"file1")?;
 //!
 //! let mut hash2 = LtHash16_1024::new()?;
-//! hash2.add_object(b"file2")?;
+//! hash2.add(b"file2")?;
 //!
 //! let combined = hash1 + hash2; // Same as hashing both files together
 //! # Ok(())
@@ -69,16 +68,16 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
-#[cfg(feature = "blake3-backend")]
-pub mod blake3_xof;
 #[cfg(feature = "folly-compat")]
 pub mod blake2xb;
+#[cfg(feature = "blake3-backend")]
+pub mod blake3_xof;
 mod error;
 mod lthash;
 
-#[cfg(feature = "blake3-backend")]
-pub use blake3_xof::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 pub use blake2xb::Blake2xb;
+#[cfg(feature = "blake3-backend")]
+pub use blake3_xof::Blake3Xof;
 pub use error::LtHashError;
 pub use lthash::{LtHash, LtHash16_1024, LtHash20_1008, LtHash32_1024};

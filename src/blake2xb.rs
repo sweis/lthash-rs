@@ -215,10 +215,7 @@ impl Blake2xb {
     ///
     /// Reads data in chunks to avoid loading the entire input into memory.
     /// Returns the total number of bytes read.
-    pub fn update_reader<R: std::io::Read>(
-        &mut self,
-        mut reader: R,
-    ) -> Result<u64, LtHashError> {
+    pub fn update_reader<R: std::io::Read>(&mut self, mut reader: R) -> Result<u64, LtHashError> {
         if !self.initialized {
             return Err(LtHashError::NotInitialized {
                 method: "update_reader",

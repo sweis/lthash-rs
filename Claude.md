@@ -26,7 +26,7 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 
 ## Security Measures (Implemented)
 
-1. **Constant-time comparison** in `checksum_equals()` and `PartialEq`
+1. **Constant-time comparison** in `checksum_eq()` and `PartialEq`
 2. **Secure key clearing** using `zeroize` crate (won't be optimized away)
 3. **Secure clearing of intermediate hash** (`h0`, `key_block` in Blake2xb)
 4. **Secure clearing on drop** for all hasher structs and LtHash checksum/scratch
@@ -61,17 +61,17 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 | 64B → 2048B XOF | 6.2 µs | 374 ns | **16x** |
 | 1024B → 2048B XOF | 7.5 µs | 1.2 µs | **6x** |
 | 4096B → 2048B XOF | 11.3 µs | 1.4 µs | **8x** |
-| LtHash add_object (32B) | 6.4 µs | 530 ns | **12x** |
+| LtHash add (32B) | 6.4 µs | 530 ns | **12x** |
 
 ### Optimizations
 
 - Pre-allocated scratch buffer eliminates per-operation allocations
 - Split-lane arithmetic for 16-bit and 32-bit element packing
 - Manual Clone impl avoids unnecessary scratch buffer cloning
-- **Streaming API** for large files: `add_object_stream()` / `remove_object_stream()`
+- **Streaming API** for large files: `add_stream()` / `remove_stream()`
   - Reads data in 8KB chunks, never loads entire file into memory
   - CLI uses streaming by default for all file operations
-- **Parallel hashing** (optional `parallel` feature): `add_objects_parallel()` / `add_readers_parallel()`
+- **Parallel hashing** (optional `parallel` feature): `add_parallel()` / `add_streams_parallel()`
   - Uses rayon for multi-threaded hashing of multiple files
   - 1.5x speedup for 16x64KB objects (overhead makes it slower for small objects)
   - CLI uses parallel hashing automatically when multiple files provided

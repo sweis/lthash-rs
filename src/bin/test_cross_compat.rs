@@ -79,10 +79,10 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
             let mut hash = LtHash16_1024::new()?;
 
             if !vector.input.is_empty() {
-                hash.add_object(vector.input)?;
+                hash.add(vector.input)?;
             }
 
-            let result = hex_encode(&hash.get_checksum()[..16]); // First 16 bytes
+            let result = hex_encode(&hash.checksum()[..16]); // First 16 bytes
             let passed = result == vector.expected_first_16_bytes;
 
             println!(
@@ -102,10 +102,10 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
             let mut hash = LtHash20_1008::new()?;
 
             if !vector.input.is_empty() {
-                hash.add_object(vector.input)?;
+                hash.add(vector.input)?;
             }
 
-            let result = hex_encode(&hash.get_checksum()[..16]); // First 16 bytes
+            let result = hex_encode(&hash.checksum()[..16]); // First 16 bytes
             let passed = result == vector.expected_first_16_bytes;
 
             println!(
@@ -125,10 +125,10 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
             let mut hash = LtHash32_1024::new()?;
 
             if !vector.input.is_empty() {
-                hash.add_object(vector.input)?;
+                hash.add(vector.input)?;
             }
 
-            let result = hex_encode(&hash.get_checksum()[..16]); // First 16 bytes
+            let result = hex_encode(&hash.checksum()[..16]); // First 16 bytes
             let passed = result == vector.expected_first_16_bytes;
 
             println!(
@@ -148,24 +148,21 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         let mut hash2 = LtHash16_1024::new()?;
 
         // Test: a+b == b+a (commutativity)
-        hash1.add_object(b"a")?;
-        hash1.add_object(b"b")?;
+        hash1.add(b"a")?.add(b"b")?;
+        hash2.add(b"b")?.add(b"a")?;
 
-        hash2.add_object(b"b")?;
-        hash2.add_object(b"a")?;
-
-        let commutative = hash1.get_checksum() == hash2.get_checksum();
+        let commutative = hash1.checksum() == hash2.checksum();
         println!(
             "  a+b == b+a (commutativity): {}",
             if commutative { "✓ PASS" } else { "✗ FAIL" }
         );
 
         // Test: a+b-a == b (additive inverse)
-        hash1.remove_object(b"a")?;
+        hash1.remove(b"a")?;
         let mut hash_just_b = LtHash16_1024::new()?;
-        hash_just_b.add_object(b"b")?;
+        hash_just_b.add(b"b")?;
 
-        let removal_works = hash1.get_checksum() == hash_just_b.get_checksum();
+        let removal_works = hash1.checksum() == hash_just_b.checksum();
         println!(
             "  a+b-a == b (additive inverse): {}",
             if removal_works {
@@ -180,13 +177,12 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         let mut h_b = LtHash16_1024::new()?;
         let mut h_ab = LtHash16_1024::new()?;
 
-        h_a.add_object(b"a")?;
-        h_b.add_object(b"b")?;
-        h_ab.add_object(b"a")?;
-        h_ab.add_object(b"b")?;
+        h_a.add(b"a")?;
+        h_b.add(b"b")?;
+        h_ab.add(b"a")?.add(b"b")?;
 
         let h_sum = h_a + h_b;
-        let homomorphic = h_sum.get_checksum() == h_ab.get_checksum();
+        let homomorphic = h_sum.checksum() == h_ab.checksum();
         println!(
             "  H(a) + H(b) == H(a+b) (homomorphic): {}",
             if homomorphic { "✓ PASS" } else { "✗ FAIL" }
