@@ -241,12 +241,16 @@ fn hash_dir_recursive_inner(
         LtHash16_1024::new()?
     };
 
-    // Recursively hash subdirectories and add their checksums
-    for subdir in subdirs {
-        let subdir_hash = hash_dir_recursive_inner(&subdir, stats, include_hidden)?;
-        dir_hash.add(subdir_hash.checksum())?;
-        stats.dirs_hashed += 1;
+    // Recursively hash subdirectories
+    let mut subdir_hashes = Vec::with_capacity(subdirs.len());
+    for subdir in &subdirs {
+        let subdir_hash = hash_dir_recursive_inner(subdir, stats, include_hidden)?;
+        subdir_hashes.push(subdir_hash);
     }
+    stats.dirs_hashed += subdir_hashes.len();
+
+    // Add all subdirectory checksums at once
+    dir_hash.add_iter(subdir_hashes.iter().map(|h| h.checksum()))?;
 
     Ok(dir_hash)
 }
