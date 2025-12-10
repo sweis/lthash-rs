@@ -989,7 +989,7 @@ impl<const B: usize, const N: usize> Default for LtHash<B, N> {
 
 impl<const B: usize, const N: usize> PartialEq for LtHash<B, N> {
     fn eq(&self, other: &Self) -> bool {
-        constant_time_eq(&self.checksum, &other.checksum)
+        self.keys_equal(other) && constant_time_eq(&self.checksum, &other.checksum)
     }
 }
 

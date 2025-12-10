@@ -38,6 +38,9 @@ pub enum LtHashError {
     #[error("Blake2b operation failed: {0}")]
     Blake2Error(&'static str),
 
+    #[error("I/O error: {0}")]
+    IoError(String),
+
     #[error("Key mismatch: cannot combine LtHashes with different keys")]
     KeyMismatch,
 

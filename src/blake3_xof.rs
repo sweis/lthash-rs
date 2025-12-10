@@ -130,7 +130,7 @@ impl Blake3Xof {
         loop {
             let bytes_read = reader
                 .read(&mut buffer)
-                .map_err(|_| LtHashError::Blake2Error("I/O error reading from stream"))?;
+                .map_err(|e| LtHashError::IoError(format!("error reading from stream: {}", e)))?;
 
             if bytes_read == 0 {
                 break;
