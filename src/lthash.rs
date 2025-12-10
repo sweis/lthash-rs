@@ -993,6 +993,11 @@ impl<const B: usize, const N: usize> PartialEq for LtHash<B, N> {
     }
 }
 
+/// Homomorphic addition of two LtHash instances.
+///
+/// # Panics
+/// Panics if the two hashes have different keys. For a non-panicking
+/// alternative, use [`try_add`](LtHash::try_add).
 impl<const B: usize, const N: usize> std::ops::AddAssign for LtHash<B, N> {
     fn add_assign(&mut self, rhs: Self) {
         if !self.keys_equal(&rhs) {
@@ -1002,6 +1007,11 @@ impl<const B: usize, const N: usize> std::ops::AddAssign for LtHash<B, N> {
     }
 }
 
+/// Homomorphic addition of two LtHash instances.
+///
+/// # Panics
+/// Panics if the two hashes have different keys. For a non-panicking
+/// alternative, use [`try_add`](LtHash::try_add).
 impl<const B: usize, const N: usize> std::ops::Add for LtHash<B, N> {
     type Output = Self;
 
@@ -1011,6 +1021,11 @@ impl<const B: usize, const N: usize> std::ops::Add for LtHash<B, N> {
     }
 }
 
+/// Homomorphic subtraction of two LtHash instances.
+///
+/// # Panics
+/// Panics if the two hashes have different keys. For a non-panicking
+/// alternative, use [`try_sub`](LtHash::try_sub).
 impl<const B: usize, const N: usize> std::ops::SubAssign for LtHash<B, N> {
     fn sub_assign(&mut self, rhs: Self) {
         if !self.keys_equal(&rhs) {
@@ -1021,6 +1036,11 @@ impl<const B: usize, const N: usize> std::ops::SubAssign for LtHash<B, N> {
     }
 }
 
+/// Homomorphic subtraction of two LtHash instances.
+///
+/// # Panics
+/// Panics if the two hashes have different keys. For a non-panicking
+/// alternative, use [`try_sub`](LtHash::try_sub).
 impl<const B: usize, const N: usize> std::ops::Sub for LtHash<B, N> {
     type Output = Self;
 

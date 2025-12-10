@@ -37,21 +37,6 @@ Rust implementation of Facebook's LtHash (Lattice-based Homomorphic Hash). Uses 
 
 ---
 
-## Remaining Issues
-
-### LOW PRIORITY
-
-3. **Operator overloads still panic**
-   - `+=` and `-=` panic on key mismatch
-   - Use `try_add`/`try_sub` for fallible operations
-   - This is intentional: operators are fast, Results are safe
-
-4. **MSRV not specified**
-   - Uses `is_multiple_of` (stabilized Rust 1.79, June 2024)
-   - Consider adding `rust-version = "1.79"` to Cargo.toml
-
----
-
 ## Performance
 
 ### Backend Comparison
