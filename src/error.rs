@@ -14,6 +14,9 @@ pub enum LtHashError {
     #[error("Invalid personalization length: expected 16 bytes, got {0}")]
     InvalidPersonalizationLength(usize),
 
+    #[error("Output length too small: min {min}, got {actual}")]
+    OutputLengthTooSmall { min: usize, actual: usize },
+
     #[error("Output length too large: max {max}, got {actual}")]
     OutputLengthTooLarge { max: usize, actual: usize },
 

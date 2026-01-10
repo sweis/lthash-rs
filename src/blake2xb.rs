@@ -126,11 +126,19 @@ impl Blake2xb {
         salt: &[u8],
         personalization: &[u8],
     ) -> Result<(), LtHashError> {
-        if output_length != Self::UNKNOWN_OUTPUT_LENGTH && output_length > Self::MAX_OUTPUT_LENGTH {
-            return Err(LtHashError::OutputLengthTooLarge {
-                max: Self::MAX_OUTPUT_LENGTH,
-                actual: output_length,
-            });
+        if output_length != Self::UNKNOWN_OUTPUT_LENGTH {
+            if output_length < Self::MIN_OUTPUT_LENGTH {
+                return Err(LtHashError::OutputLengthTooSmall {
+                    min: Self::MIN_OUTPUT_LENGTH,
+                    actual: output_length,
+                });
+            }
+            if output_length > Self::MAX_OUTPUT_LENGTH {
+                return Err(LtHashError::OutputLengthTooLarge {
+                    max: Self::MAX_OUTPUT_LENGTH,
+                    actual: output_length,
+                });
+            }
         }
 
         if !key.is_empty() && key.len() > 64 {
