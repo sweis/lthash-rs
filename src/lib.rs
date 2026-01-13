@@ -68,10 +68,17 @@
 //! - [Bellare-Micciancio: Original Paper](https://cseweb.ucsd.edu/~mihir/papers/inc1.pdf)
 //! - [Facebook Folly Implementation](https://github.com/facebook/folly/tree/main/folly/crypto)
 
-#[cfg(feature = "folly-compat")]
-pub mod blake2xb;
+// Ensure at least one backend is enabled
+#[cfg(not(any(feature = "blake3-backend", feature = "folly-compat")))]
+compile_error!(
+    "At least one hash backend must be enabled. \
+     Use `blake3-backend` (default) for pure Rust, or `folly-compat` for Facebook Folly compatibility."
+);
+
 #[cfg(feature = "blake3-backend")]
 pub mod blake3_xof;
+#[cfg(feature = "folly-compat")]
+pub mod blake2xb;
 mod error;
 mod lthash;
 
