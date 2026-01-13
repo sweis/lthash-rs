@@ -126,8 +126,8 @@ impl Blake3Xof {
             });
         }
 
-        // Use 8KB buffer - good balance for I/O and cache efficiency
-        let mut buffer = [0u8; 8192];
+        // Use 64KB buffer - optimal for large file I/O throughput
+        let mut buffer = [0u8; 65536];
         let mut total_bytes = 0u64;
 
         loop {
