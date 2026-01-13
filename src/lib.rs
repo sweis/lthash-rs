@@ -77,11 +77,8 @@ compile_error!(
 
 #[cfg(feature = "blake3-backend")]
 pub mod blake3_xof;
-
 #[cfg(feature = "folly-compat")]
 pub mod blake2xb;
-#[cfg(feature = "blake3-backend")]
-pub mod blake3_xof;
 mod error;
 mod lthash;
 

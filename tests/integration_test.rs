@@ -423,11 +423,11 @@ fn test_partial_eq_considers_keys() -> Result<(), LtHashError> {
     // Create two hashes with same data but different keys
     let mut hash1 = LtHash16_1024::new()?;
     hash1.set_key(key1)?;
-    hash1.add_object(b"data")?;
+    hash1.add(b"data")?;
 
     let mut hash2 = LtHash16_1024::new()?;
     hash2.set_key(key2)?;
-    hash2.add_object(b"data")?;
+    hash2.add(b"data")?;
 
     // Hashes with different keys should NOT be equal, even if we manually
     // set the checksums to be the same
