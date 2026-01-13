@@ -299,3 +299,104 @@ fn test_parallel_equals_sequential() -> Result<(), LtHashError> {
 
     Ok(())
 }
+
+/// Issue #24: PartialEq should consider keys, not just checksums
+/// Two hashes with different keys but same checksum should NOT be equal
+#[test]
+fn test_partial_eq_considers_keys() -> Result<(), LtHashError> {
+    // Use 32-byte keys (works with both BLAKE3 and Blake2xb backends)
+    let key1 = b"this_is_a_32_byte_key_for_test1";
+    let key2 = b"this_is_a_32_byte_key_for_test2";
+
+    // Create two hashes with same data but different keys
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.set_key(key1)?;
+    hash1.add_object(b"data")?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.set_key(key2)?;
+    hash2.add_object(b"data")?;
+
+    // Hashes with different keys should NOT be equal, even if we manually
+    // set the checksums to be the same
+    let mut hash3 = LtHash16_1024::new()?;
+    hash3.set_key(key1)?;
+
+    let mut hash4 = LtHash16_1024::new()?;
+    hash4.set_key(key2)?;
+
+    // Empty hashes have the same checksum (all zeros) but different keys
+    // They should NOT be considered equal
+    assert_ne!(
+        hash3, hash4,
+        "Hashes with different keys should not be equal even with same checksum"
+    );
+
+    // Same key, same checksum should be equal
+    let mut hash5 = LtHash16_1024::new()?;
+    hash5.set_key(key1)?;
+
+    let mut hash6 = LtHash16_1024::new()?;
+    hash6.set_key(key1)?;
+
+    assert_eq!(
+        hash5, hash6,
+        "Hashes with same key and checksum should be equal"
+    );
+
+    // No key vs has key should not be equal
+    let hash_no_key = LtHash16_1024::new()?;
+    let mut hash_with_key = LtHash16_1024::new()?;
+    hash_with_key.set_key(key1)?;
+
+    assert_ne!(
+        hash_no_key, hash_with_key,
+        "Hash without key should not equal hash with key"
+    );
+
+    Ok(())
+}
+
+/// Issue #20: Blake2xb should reject zero-length output
+#[cfg(feature = "folly-compat")]
+#[test]
+fn test_blake2xb_rejects_zero_length_output() {
+    // Zero-length output should be rejected
+    let mut output = vec![0u8; 0];
+    let result = Blake2xb::hash(&mut output, b"test", &[], &[], &[]);
+    assert!(
+        result.is_err(),
+        "Blake2xb should reject zero-length output"
+    );
+}
+
+/// Issue #21/#22: Blake3 should not report Blake2 errors
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_blake3_error_messages() {
+    use std::io::{self, Read};
+
+    // Create a reader that always fails
+    struct FailingReader;
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "simulated error"))
+        }
+    }
+
+    let mut xof = Blake3Xof::new();
+    xof.init(64, &[], &[], &[]).unwrap();
+
+    let result = xof.update_reader(FailingReader);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+
+    // The error message should NOT mention Blake2
+    assert!(
+        !err_msg.to_lowercase().contains("blake2"),
+        "Blake3 error should not mention Blake2: {}",
+        err_msg
+    );
+}

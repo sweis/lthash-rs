@@ -815,11 +815,16 @@ impl<const B: usize, const N: usize> Default for LtHash<B, N> {
 
 impl<const B: usize, const N: usize> PartialEq for LtHash<B, N> {
     fn eq(&self, other: &Self) -> bool {
+        // Keys must match (both None, or both Some with same value)
+        if !self.keys_equal(other) {
+            return false;
+        }
+
         if self.checksum.len() != other.checksum.len() {
             return false;
         }
 
-        // Constant-time comparison
+        // Constant-time comparison of checksums
         let mut result = 0u8;
         for (a, b) in self.checksum.iter().zip(other.checksum.iter()) {
             result |= a ^ b;
