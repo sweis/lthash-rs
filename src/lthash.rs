@@ -346,27 +346,25 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     #[cfg(feature = "parallel")]
     #[must_use = "this returns a Result that must be checked"]
     pub fn add_parallel(&mut self, items: &[&[u8]]) -> Result<&mut Self, LtHashError> {
-        let key = self.key.clone();
+        if items.is_empty() {
+            return Ok(self);
+        }
 
-        let combined: Result<Self, LtHashError> = items
+        let key_slice = self.key.as_deref();
+
+        // Hash each item to a Vec<u8>, avoiding full LtHash allocation overhead
+        let combined: Result<Vec<u8>, LtHashError> = items
             .par_iter()
-            .map(|data| {
-                let mut h = Self::new()?;
-                if let Some(ref k) = key {
-                    h.key = Some(k.clone());
-                }
-                h.add(data)?;
-                Ok(h)
-            })
+            .map(|data| Self::hash_data_to_vec(data, key_slice))
             .try_reduce(
-                || Self::new().expect("Failed to create empty LtHash"),
+                || vec![0u8; Self::checksum_size_bytes()],
                 |mut a, b| {
-                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Self::math_add(&mut a, &b)?;
                     Ok(a)
                 },
             );
 
-        Self::math_add(&mut self.checksum, &combined?.checksum)?;
+        Self::math_add(&mut self.checksum, &combined?)?;
         Ok(self)
     }
 
@@ -396,27 +394,25 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         readers: Vec<R>,
     ) -> Result<&mut Self, LtHashError> {
-        let key = self.key.clone();
+        if readers.is_empty() {
+            return Ok(self);
+        }
 
-        let combined: Result<Self, LtHashError> = readers
+        let key_vec = self.key.clone();
+
+        // Hash each reader to a Vec<u8>, avoiding full LtHash allocation overhead
+        let combined: Result<Vec<u8>, LtHashError> = readers
             .into_par_iter()
-            .map(|reader| {
-                let mut h = Self::new()?;
-                if let Some(ref k) = key {
-                    h.key = Some(k.clone());
-                }
-                h.add_stream(reader)?;
-                Ok(h)
-            })
+            .map(|reader| Self::hash_reader_to_vec(reader, key_vec.as_deref()))
             .try_reduce(
-                || Self::new().expect("Failed to create empty LtHash"),
+                || vec![0u8; Self::checksum_size_bytes()],
                 |mut a, b| {
-                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Self::math_add(&mut a, &b)?;
                     Ok(a)
                 },
             );
 
-        Self::math_add(&mut self.checksum, &combined?.checksum)?;
+        Self::math_add(&mut self.checksum, &combined?)?;
         Ok(self)
     }
 
@@ -468,27 +464,25 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         items: &[T],
     ) -> Result<&mut Self, LtHashError> {
-        let key = self.key.clone();
+        if items.is_empty() {
+            return Ok(self);
+        }
 
-        let combined: Result<Self, LtHashError> = items
+        let key_slice = self.key.as_deref();
+
+        // Hash each item to a Vec<u8>, avoiding full LtHash allocation overhead
+        let combined: Result<Vec<u8>, LtHashError> = items
             .par_iter()
-            .map(|data| {
-                let mut h = Self::new()?;
-                if let Some(ref k) = key {
-                    h.key = Some(k.clone());
-                }
-                h.add(data.as_ref())?;
-                Ok(h)
-            })
+            .map(|data| Self::hash_data_to_vec(data.as_ref(), key_slice))
             .try_reduce(
-                || Self::new().expect("Failed to create empty LtHash"),
+                || vec![0u8; Self::checksum_size_bytes()],
                 |mut a, b| {
-                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Self::math_add(&mut a, &b)?;
                     Ok(a)
                 },
             );
 
-        Self::math_add(&mut self.checksum, &combined?.checksum)?;
+        Self::math_add(&mut self.checksum, &combined?)?;
         Ok(self)
     }
 
@@ -527,27 +521,25 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         &mut self,
         items: &[T],
     ) -> Result<&mut Self, LtHashError> {
-        let key = self.key.clone();
+        if items.is_empty() {
+            return Ok(self);
+        }
 
-        let combined: Result<Self, LtHashError> = items
+        let key_slice = self.key.as_deref();
+
+        // Hash each item to a Vec<u8>, avoiding full LtHash allocation overhead
+        let combined: Result<Vec<u8>, LtHashError> = items
             .par_iter()
-            .map(|data| {
-                let mut h = Self::new()?;
-                if let Some(ref k) = key {
-                    h.key = Some(k.clone());
-                }
-                h.add(data.as_ref())?;
-                Ok(h)
-            })
+            .map(|data| Self::hash_data_to_vec(data.as_ref(), key_slice))
             .try_reduce(
-                || Self::new().expect("Failed to create empty LtHash"),
+                || vec![0u8; Self::checksum_size_bytes()],
                 |mut a, b| {
-                    Self::math_add(&mut a.checksum, &b.checksum)?;
+                    Self::math_add(&mut a, &b)?;
                     Ok(a)
                 },
             );
 
-        Self::math_subtract(&mut self.checksum, &combined?.checksum)?;
+        Self::math_subtract(&mut self.checksum, &combined?)?;
         Ok(self)
     }
 
@@ -693,6 +685,73 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             Self::clear_padding_bits(&mut self.scratch);
         }
         Ok(())
+    }
+
+    /// Hash data directly into a new Vec, avoiding LtHash allocation overhead.
+    /// Used internally by parallel methods to reduce memory allocations.
+    #[cfg(all(
+        feature = "parallel",
+        feature = "blake3-backend",
+        not(feature = "folly-compat")
+    ))]
+    fn hash_data_to_vec(data: &[u8], key: Option<&[u8]>) -> Result<Vec<u8>, LtHashError> {
+        let mut output = vec![0u8; Self::checksum_size_bytes()];
+        let k = key.unwrap_or(&[]);
+        Blake3Xof::hash(&mut output, data, k, &[], &[])?;
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut output);
+        }
+        Ok(output)
+    }
+
+    #[cfg(all(feature = "parallel", feature = "folly-compat"))]
+    fn hash_data_to_vec(data: &[u8], key: Option<&[u8]>) -> Result<Vec<u8>, LtHashError> {
+        let mut output = vec![0u8; Self::checksum_size_bytes()];
+        let k = key.unwrap_or(&[]);
+        Blake2xb::hash(&mut output, data, k, &[], &[])?;
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut output);
+        }
+        Ok(output)
+    }
+
+    /// Hash a reader directly into a new Vec, avoiding LtHash allocation overhead.
+    #[cfg(all(
+        feature = "parallel",
+        feature = "blake3-backend",
+        not(feature = "folly-compat")
+    ))]
+    fn hash_reader_to_vec<R: std::io::Read>(
+        reader: R,
+        key: Option<&[u8]>,
+    ) -> Result<Vec<u8>, LtHashError> {
+        let mut output = vec![0u8; Self::checksum_size_bytes()];
+        let mut xof = Blake3Xof::new();
+        let k = key.unwrap_or(&[]);
+        xof.init(output.len(), k, &[], &[])?;
+        xof.update_reader(reader)?;
+        xof.finish(&mut output)?;
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut output);
+        }
+        Ok(output)
+    }
+
+    #[cfg(all(feature = "parallel", feature = "folly-compat"))]
+    fn hash_reader_to_vec<R: std::io::Read>(
+        reader: R,
+        key: Option<&[u8]>,
+    ) -> Result<Vec<u8>, LtHashError> {
+        let mut output = vec![0u8; Self::checksum_size_bytes()];
+        let mut xof = Blake2xb::new();
+        let k = key.unwrap_or(&[]);
+        xof.init(output.len(), k, &[], &[])?;
+        xof.update_reader(reader)?;
+        xof.finish(&mut output)?;
+        if Self::has_padding_bits() {
+            Self::clear_padding_bits(&mut output);
+        }
+        Ok(output)
     }
 
     /// Core homomorphic addition operation
