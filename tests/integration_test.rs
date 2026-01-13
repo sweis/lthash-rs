@@ -476,10 +476,7 @@ fn test_blake2xb_rejects_zero_length_output() {
     // Zero-length output should be rejected
     let mut output = vec![0u8; 0];
     let result = Blake2xb::hash(&mut output, b"test", &[], &[], &[]);
-    assert!(
-        result.is_err(),
-        "Blake2xb should reject zero-length output"
-    );
+    assert!(result.is_err(), "Blake2xb should reject zero-length output");
 }
 
 /// Issue #21/#22: Blake3 should not report Blake2 errors
@@ -509,6 +506,135 @@ fn test_blake3_error_messages() {
     assert!(
         !err_msg.to_lowercase().contains("blake2"),
         "Blake3 error should not mention Blake2: {}",
+        err_msg
+    );
+}
+
+/// Test that add_all and remove_all work correctly with empty slices
+#[test]
+fn test_add_all_empty() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(b"initial")?;
+    let before_checksum = hash.checksum().to_vec();
+
+    // Adding empty slice should not change the hash
+    let empty: Vec<&[u8]> = vec![];
+    hash.add_all(&empty)?;
+
+    assert_eq!(
+        hash.checksum(),
+        before_checksum.as_slice(),
+        "add_all with empty slice should not change hash"
+    );
+
+    // Remove empty slice should not change the hash
+    hash.remove_all(&empty)?;
+
+    assert_eq!(
+        hash.checksum(),
+        before_checksum.as_slice(),
+        "remove_all with empty slice should not change hash"
+    );
+
+    Ok(())
+}
+
+/// Test that with_checksum rejects checksums with invalid padding bits (20-bit variant)
+#[test]
+fn test_with_checksum_rejects_invalid_padding() {
+    use lthash::LtHash20_1008;
+
+    // Create a valid checksum
+    let mut valid_checksum = vec![0u8; LtHash20_1008::checksum_size_bytes()];
+
+    // LtHash20_1008 should accept all-zero checksum
+    assert!(
+        LtHash20_1008::with_checksum(&valid_checksum).is_ok(),
+        "Should accept valid all-zero checksum"
+    );
+
+    // Set a padding bit (the 20-bit variant has padding at specific positions)
+    // Padding bits are at positions defined by the inverse of the data mask.
+    // For 20-bit elements: !0xC000020000100000 means bits 62, 63, 17, 20 are padding
+    // Set bit 62 (which is in position 7 of the first u64, counting from byte 0)
+    valid_checksum[7] |= 0x40; // Set bit 62 (0x40 at byte 7 sets bit 6 of that byte = bit 62)
+
+    let result = LtHash20_1008::with_checksum(&valid_checksum);
+    assert!(
+        result.is_err(),
+        "Should reject checksum with non-zero padding bits"
+    );
+}
+
+/// Test that Eq trait is properly implemented
+#[test]
+fn test_eq_trait() -> Result<(), LtHashError> {
+    let mut hash1 = LtHash16_1024::new()?;
+    let mut hash2 = LtHash16_1024::new()?;
+    hash1.add(b"test")?;
+    hash2.add(b"test")?;
+
+    // Eq requires that a == a (reflexive)
+    assert_eq!(hash1, hash1);
+    // PartialEq should work
+    assert_eq!(hash1, hash2);
+    // Verify Eq is implemented by using it in a comparison
+    assert!(hash1 == hash2);
+
+    Ok(())
+}
+
+/// Test that parallel methods work with single item (edge case)
+#[cfg(feature = "parallel")]
+#[test]
+fn test_parallel_single_item() -> Result<(), LtHashError> {
+    let items: Vec<&[u8]> = vec![b"single item"];
+
+    // Sequential
+    let mut hash_seq = LtHash16_1024::new()?;
+    hash_seq.add(b"single item")?;
+
+    // Parallel with single item
+    let mut hash_par = LtHash16_1024::new()?;
+    hash_par.add_parallel(&items)?;
+
+    assert_eq!(
+        hash_seq.checksum(),
+        hash_par.checksum(),
+        "Parallel with single item should match sequential"
+    );
+
+    Ok(())
+}
+
+/// Test that Blake2xb's update_reader uses IoError, not Blake2Error
+#[cfg(feature = "folly-compat")]
+#[test]
+fn test_blake2xb_io_error_type() {
+    use lthash::Blake2xb;
+    use std::io::{self, Read};
+
+    // Create a reader that always fails
+    struct FailingReader;
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "simulated error"))
+        }
+    }
+
+    let mut xof = Blake2xb::new();
+    xof.init(64, &[], &[], &[]).unwrap();
+
+    let result = xof.update_reader(FailingReader);
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+
+    // The error message should be an I/O error, not a Blake2 error
+    assert!(
+        err_msg.contains("I/O") || err_msg.contains("error reading"),
+        "Blake2xb I/O error should mention I/O: {}",
         err_msg
     );
 }

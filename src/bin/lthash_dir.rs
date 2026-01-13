@@ -56,7 +56,10 @@ impl Progress {
         let bytes = self.bytes_processed.load(Ordering::Relaxed);
         let mb = bytes as f64 / 1_000_000.0;
 
-        eprint!("\r\x1b[K  Processing: {} files, {} dirs, {:.1} MB", files, dirs, mb);
+        eprint!(
+            "\r\x1b[K  Processing: {} files, {} dirs, {:.1} MB",
+            files, dirs, mb
+        );
         let _ = std::io::stderr().flush();
     }
 

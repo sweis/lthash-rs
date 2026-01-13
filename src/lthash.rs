@@ -881,11 +881,11 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[inline]
     fn as_u64_slice(bytes: &[u8]) -> &[u64] {
-        debug_assert_eq!(bytes.len() % 8, 0);
+        assert_eq!(bytes.len() % 8, 0, "Buffer length must be a multiple of 8");
         // SAFETY: We use align_to which handles alignment properly.
-        // The prefix/suffix being empty is asserted to catch any alignment issues.
+        // Vec<u8> is typically well-aligned, but we verify with an assert.
         let (prefix, aligned, suffix) = unsafe { bytes.align_to::<u64>() };
-        debug_assert!(
+        assert!(
             prefix.is_empty() && suffix.is_empty(),
             "Buffer is not properly aligned for u64 access"
         );
@@ -894,11 +894,11 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     #[inline]
     fn as_u64_slice_mut(bytes: &mut [u8]) -> &mut [u64] {
-        debug_assert_eq!(bytes.len() % 8, 0);
+        assert_eq!(bytes.len() % 8, 0, "Buffer length must be a multiple of 8");
         // SAFETY: We use align_to_mut which handles alignment properly.
-        // The prefix/suffix being empty is asserted to catch any alignment issues.
+        // Vec<u8> is typically well-aligned, but we verify with an assert.
         let (prefix, aligned, suffix) = unsafe { bytes.align_to_mut::<u64>() };
-        debug_assert!(
+        assert!(
             prefix.is_empty() && suffix.is_empty(),
             "Buffer is not properly aligned for u64 access"
         );
@@ -994,18 +994,13 @@ impl<const B: usize, const N: usize> PartialEq for LtHash<B, N> {
             return false;
         }
 
-        if self.checksum.len() != other.checksum.len() {
-            return false;
-        }
-
-        // Constant-time comparison of checksums
-        let mut result = 0u8;
-        for (a, b) in self.checksum.iter().zip(other.checksum.iter()) {
-            result |= a ^ b;
-        }
-        result == 0
+        // For the same const generic parameters, checksum lengths are always equal.
+        // Use constant_time_eq to prevent timing attacks.
+        constant_time_eq(&self.checksum, &other.checksum)
     }
 }
+
+impl<const B: usize, const N: usize> Eq for LtHash<B, N> {}
 
 /// Homomorphic addition of two LtHash instances.
 ///
