@@ -17,11 +17,14 @@ struct Args {
     progress: bool,
 }
 
-/// Thread-safe progress tracking
+/// Thread-safe progress tracking with ETA estimation
 struct Progress {
     files_processed: AtomicUsize,
     dirs_processed: AtomicUsize,
     bytes_processed: AtomicU64,
+    total_bytes: AtomicU64,
+    total_files: AtomicUsize,
+    start_time: Instant,
     enabled: bool,
 }
 
@@ -31,8 +34,16 @@ impl Progress {
             files_processed: AtomicUsize::new(0),
             dirs_processed: AtomicUsize::new(0),
             bytes_processed: AtomicU64::new(0),
+            total_bytes: AtomicU64::new(0),
+            total_files: AtomicUsize::new(0),
+            start_time: Instant::now(),
             enabled,
         }
+    }
+
+    fn set_totals(&self, files: usize, bytes: u64) {
+        self.total_files.store(files, Ordering::Relaxed);
+        self.total_bytes.store(bytes, Ordering::Relaxed);
     }
 
     fn add_files(&self, count: usize, bytes: u64) {
@@ -54,11 +65,40 @@ impl Progress {
         let files = self.files_processed.load(Ordering::Relaxed);
         let dirs = self.dirs_processed.load(Ordering::Relaxed);
         let bytes = self.bytes_processed.load(Ordering::Relaxed);
+        let total_bytes = self.total_bytes.load(Ordering::Relaxed);
+        let total_files = self.total_files.load(Ordering::Relaxed);
+
+        let elapsed = self.start_time.elapsed().as_secs_f64();
         let mb = bytes as f64 / 1_000_000.0;
 
+        // Calculate throughput and ETA
+        let throughput = if elapsed > 0.01 {
+            bytes as f64 / elapsed / 1_000_000.0
+        } else {
+            0.0
+        };
+
+        let eta_str = if total_bytes > 0 && throughput > 0.0 {
+            let remaining_bytes = total_bytes.saturating_sub(bytes);
+            let eta_secs = remaining_bytes as f64 / (throughput * 1_000_000.0);
+            let pct = (bytes as f64 / total_bytes as f64 * 100.0).min(100.0);
+            format!(" | {:.0}% | ETA: {}", pct, format_duration(eta_secs))
+        } else if total_files > 0 {
+            let pct = (files as f64 / total_files as f64 * 100.0).min(100.0);
+            format!(" | {:.0}%", pct)
+        } else {
+            String::new()
+        };
+
+        let throughput_str = if throughput > 0.0 {
+            format!(" @ {:.0} MB/s", throughput)
+        } else {
+            String::new()
+        };
+
         eprint!(
-            "\r\x1b[K  Processing: {} files, {} dirs, {:.1} MB",
-            files, dirs, mb
+            "\r\x1b[K  Processing: {} files, {} dirs, {:.1} MB{}{}",
+            files, dirs, mb, throughput_str, eta_str
         );
         let _ = std::io::stderr().flush();
     }
@@ -142,6 +182,17 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let start = Instant::now();
     let progress = Arc::new(Progress::new(args.progress));
 
+    // Quick scan to get totals for ETA estimation
+    if args.progress {
+        eprint!("  Scanning...");
+        let _ = std::io::stderr().flush();
+        let (total_files, total_bytes) =
+            scan_directory(&args.directory, args.include_hidden, args.recursive);
+        progress.set_totals(total_files, total_bytes);
+        eprint!("\r\x1b[K");
+        let _ = std::io::stderr().flush();
+    }
+
     let (hash, stats) = if args.recursive {
         hash_directory_recursive(&args.directory, args.include_hidden, &progress)?
     } else {
@@ -179,6 +230,71 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     Ok(())
+}
+
+fn format_duration(secs: f64) -> String {
+    if secs < 1.0 {
+        "<1s".to_string()
+    } else if secs < 60.0 {
+        format!("{}s", secs as u64)
+    } else if secs < 3600.0 {
+        let mins = (secs / 60.0) as u64;
+        let secs = (secs % 60.0) as u64;
+        format!("{}m {}s", mins, secs)
+    } else {
+        let hours = (secs / 3600.0) as u64;
+        let mins = ((secs % 3600.0) / 60.0) as u64;
+        format!("{}h {}m", hours, mins)
+    }
+}
+
+/// Quick scan to count files and total bytes for ETA estimation
+fn scan_directory(dir: &str, include_hidden: bool, recursive: bool) -> (usize, u64) {
+    let mut total_files = 0usize;
+    let mut total_bytes = 0u64;
+
+    fn scan_dir(
+        path: &Path,
+        include_hidden: bool,
+        recursive: bool,
+        files: &mut usize,
+        bytes: &mut u64,
+    ) {
+        let entries = match fs::read_dir(path) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if !include_hidden && is_hidden(&path) {
+                continue;
+            }
+
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            if metadata.is_file() {
+                *files += 1;
+                *bytes += metadata.len();
+            } else if metadata.is_dir() && recursive {
+                scan_dir(&path, include_hidden, recursive, files, bytes);
+            }
+        }
+    }
+
+    let root = Path::new(dir);
+    scan_dir(
+        root,
+        include_hidden,
+        recursive,
+        &mut total_files,
+        &mut total_bytes,
+    );
+    (total_files, total_bytes)
 }
 
 fn is_hidden(path: &Path) -> bool {
