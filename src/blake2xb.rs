@@ -126,6 +126,14 @@ impl Blake2xb {
         salt: &[u8],
         personalization: &[u8],
     ) -> Result<(), LtHashError> {
+        // Check minimum output length (0 is only valid for UNKNOWN_OUTPUT_LENGTH)
+        if output_length != Self::UNKNOWN_OUTPUT_LENGTH && output_length < Self::MIN_OUTPUT_LENGTH {
+            return Err(LtHashError::OutputLengthTooSmall {
+                min: Self::MIN_OUTPUT_LENGTH,
+                actual: output_length,
+            });
+        }
+
         if output_length != Self::UNKNOWN_OUTPUT_LENGTH && output_length > Self::MAX_OUTPUT_LENGTH {
             return Err(LtHashError::OutputLengthTooLarge {
                 max: Self::MAX_OUTPUT_LENGTH,
@@ -390,6 +398,13 @@ impl Blake2xb {
         salt: &[u8],
         personalization: &[u8],
     ) -> Result<(), LtHashError> {
+        // Reject zero-length output (0 is used internally for UNKNOWN_OUTPUT_LENGTH)
+        if out.is_empty() {
+            return Err(LtHashError::OutputLengthTooSmall {
+                min: Self::MIN_OUTPUT_LENGTH,
+                actual: 0,
+            });
+        }
         let mut blake2xb = Self::new();
         blake2xb.init(out.len(), key, salt, personalization)?;
         blake2xb.update(data)?;
