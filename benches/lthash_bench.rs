@@ -221,25 +221,12 @@ fn bench_parallel(c: &mut Criterion) {
         });
     });
 
-    // Parallel: hash objects in parallel, then combine
+    // Parallel: use library's optimized add_parallel method
     group.bench_function(format!("{object_count}x{object_size}B_parallel"), |b| {
         b.iter(|| {
-            // Parallel hash each object
-            let hashes: Vec<LtHash16_1024> = object_refs
-                .par_iter()
-                .map(|obj| {
-                    let mut h = LtHash16_1024::new().unwrap();
-                    h.add(black_box(obj)).unwrap();
-                    h
-                })
-                .collect();
-
-            // Combine all hashes
-            let mut result = LtHash16_1024::new().unwrap();
-            for h in hashes {
-                result.try_add(&h).unwrap();
-            }
-            result
+            let mut hash = LtHash16_1024::new().unwrap();
+            hash.add_parallel(black_box(&object_refs)).unwrap();
+            hash
         });
     });
 
@@ -271,26 +258,25 @@ fn bench_parallel(c: &mut Criterion) {
         },
     );
 
-    // Parallel streaming
+    // Parallel streaming: use library's optimized add_streams_parallel method
+    // Note: We clone data outside the timing loop to avoid measuring clone overhead
     group2.bench_function(
         format!("{large_object_count}x{large_object_size}B_parallel_stream"),
         |b| {
-            b.iter(|| {
-                let hashes: Vec<LtHash16_1024> = large_objects
-                    .par_iter()
-                    .map(|obj| {
-                        let mut h = LtHash16_1024::new().unwrap();
-                        h.add_stream(Cursor::new(black_box(obj))).unwrap();
-                        h
-                    })
-                    .collect();
-
-                let mut result = LtHash16_1024::new().unwrap();
-                for h in hashes {
-                    result.try_add(&h).unwrap();
-                }
-                result
-            });
+            b.iter_batched(
+                || {
+                    large_objects
+                        .iter()
+                        .map(|obj| Cursor::new(obj.clone()))
+                        .collect::<Vec<_>>()
+                },
+                |readers| {
+                    let mut hash = LtHash16_1024::new().unwrap();
+                    hash.add_streams_parallel(black_box(readers)).unwrap();
+                    hash
+                },
+                criterion::BatchSize::SmallInput,
+            );
         },
     );
 
