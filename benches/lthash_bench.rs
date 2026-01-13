@@ -194,7 +194,6 @@ fn bench_creation(c: &mut Criterion) {
 
 /// Benchmark sequential vs parallel hashing of multiple objects
 fn bench_parallel(c: &mut Criterion) {
-    use rayon::prelude::*;
     use std::io::Cursor;
 
     let mut group = c.benchmark_group("parallel");
