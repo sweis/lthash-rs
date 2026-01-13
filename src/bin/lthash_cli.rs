@@ -123,7 +123,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Hash one or more files
 fn cmd_hash(file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
-    let hash = hash_files(file_args, true)?;
+    let hash = hash_files(file_args)?;
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
     println!("{}", encoded);
     Ok(())
@@ -134,7 +134,7 @@ fn cmd_add(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error:
     let existing_hash = read_hash(hash_arg)?;
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
 
-    let file_hash = hash_files(file_args, true)?;
+    let file_hash = hash_files(file_args)?;
     hash.try_add(&file_hash)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
@@ -147,7 +147,7 @@ fn cmd_remove(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::err
     let existing_hash = read_hash(hash_arg)?;
     let mut hash = LtHash16_1024::with_checksum(&existing_hash)?;
 
-    let file_hash = hash_files(file_args, true)?;
+    let file_hash = hash_files(file_args)?;
     hash.try_sub(&file_hash)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
@@ -156,17 +156,13 @@ fn cmd_remove(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::err
 }
 
 /// Hash multiple files, using parallel processing when available and beneficial
-fn hash_files(file_args: &[&str], add: bool) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
+fn hash_files(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
     // Handle stdin case - must be processed sequentially
     if file_args.len() == 1 && file_args[0] == "-" {
         let mut hash = LtHash16_1024::new()?;
         let stdin = io::stdin();
         let reader = stdin.lock();
-        if add {
-            hash.add_stream(reader)?;
-        } else {
-            hash.remove_stream(reader)?;
-        }
+        hash.add_stream(reader)?;
         return Ok(hash);
     }
 
@@ -179,30 +175,23 @@ fn hash_files(file_args: &[&str], add: bool) -> Result<LtHash16_1024, Box<dyn st
     #[cfg(feature = "parallel")]
     {
         if file_args.len() > 1 {
-            return hash_files_parallel(file_args, add);
+            return hash_files_parallel(file_args);
         }
     }
 
     // Sequential fallback (single file or no parallel feature)
-    hash_files_sequential(file_args, add)
+    hash_files_sequential(file_args)
 }
 
 /// Hash files sequentially using streaming
-fn hash_files_sequential(
-    file_args: &[&str],
-    add: bool,
-) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
+fn hash_files_sequential(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
     let mut hash = LtHash16_1024::new()?;
 
     for file_arg in file_args {
         let file =
             File::open(file_arg).map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
         let reader = BufReader::new(file);
-        if add {
-            hash.add_stream(reader)?;
-        } else {
-            hash.remove_stream(reader)?;
-        }
+        hash.add_stream(reader)?;
     }
 
     Ok(hash)
@@ -210,10 +199,7 @@ fn hash_files_sequential(
 
 /// Hash files in parallel using rayon
 #[cfg(feature = "parallel")]
-fn hash_files_parallel(
-    file_args: &[&str],
-    add: bool,
-) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
+fn hash_files_parallel(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
     // Open all files first to catch errors early
     let readers: Result<Vec<_>, _> = file_args
         .iter()
@@ -226,17 +212,7 @@ fn hash_files_parallel(
     let readers = readers?;
 
     // Hash in parallel
-    let hash = LtHash16_1024::from_streams_parallel(readers)?;
-
-    // For subtraction, we need to negate the result
-    if !add {
-        // Create empty hash and subtract
-        let mut result = LtHash16_1024::new()?;
-        result.try_sub(&hash)?;
-        return Ok(result);
-    }
-
-    Ok(hash)
+    LtHash16_1024::from_streams_parallel(readers).map_err(Into::into)
 }
 
 /// Read and decode a hash from argument or stdin
