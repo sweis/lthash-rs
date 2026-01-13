@@ -334,7 +334,8 @@ fn hash_dir_recursive_inner(
         let (subdir_hash, subdir_stats) = result?;
         stats.merge(subdir_stats);
         stats.dirs_hashed += 1;
-        dir_hash.add(subdir_hash.checksum())?;
+        // Use try_add to homomorphically combine the hash states
+        dir_hash.try_add(&subdir_hash)?;
     }
 
     progress.add_dir();

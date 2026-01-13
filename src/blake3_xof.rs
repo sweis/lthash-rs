@@ -39,6 +39,9 @@ pub struct Blake3Xof {
 }
 
 impl Blake3Xof {
+    /// Minimum supported output length
+    pub const MIN_OUTPUT_LENGTH: usize = 1;
+
     /// Maximum supported output length (effectively unlimited for BLAKE3)
     pub const MAX_OUTPUT_LENGTH: usize = usize::MAX;
 
@@ -185,6 +188,14 @@ impl Blake3Xof {
         _salt: &[u8],
         _personalization: &[u8],
     ) -> Result<(), LtHashError> {
+        // Reject zero-length output for API consistency with Blake2xb
+        if out.is_empty() {
+            return Err(LtHashError::OutputLengthTooSmall {
+                min: Self::MIN_OUTPUT_LENGTH,
+                actual: 0,
+            });
+        }
+
         let mut hasher = if key.is_empty() {
             blake3::Hasher::new()
         } else if key.len() == 32 {
