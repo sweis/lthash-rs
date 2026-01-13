@@ -20,9 +20,6 @@ pub enum LtHashError {
     #[error("Output length too large: max {max}, got {actual}")]
     OutputLengthTooLarge { max: usize, actual: usize },
 
-    #[error("Output length too small: min {min}, got {actual}")]
-    OutputLengthTooSmall { min: usize, actual: usize },
-
     #[error("Output buffer size mismatch: expected {expected}, got {actual}")]
     OutputSizeMismatch { expected: usize, actual: usize },
 
