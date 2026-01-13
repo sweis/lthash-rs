@@ -638,3 +638,16 @@ fn test_blake2xb_io_error_type() {
         err_msg
     );
 }
+
+/// Blake3Xof should reject zero-length output (API consistency with Blake2xb)
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_blake3_rejects_zero_length_output() {
+    // Zero-length output should be rejected
+    let mut output = vec![0u8; 0];
+    let result = Blake3Xof::hash(&mut output, b"test", &[], &[], &[]);
+    assert!(
+        result.is_err(),
+        "Blake3Xof should reject zero-length output"
+    );
+}
