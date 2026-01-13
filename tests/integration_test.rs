@@ -1,9 +1,9 @@
 use lthash::{LtHash16_1024, LtHashError};
 
-#[cfg(feature = "blake3-backend")]
-use lthash::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 use lthash::Blake2xb;
+#[cfg(feature = "blake3-backend")]
+use lthash::Blake3Xof;
 
 mod test_vectors;
 
@@ -37,11 +37,51 @@ fn test_blake2xb_basic() -> Result<(), LtHashError> {
 fn test_lthash_basic() -> Result<(), LtHashError> {
     // Test basic LtHash functionality
     let mut hash = LtHash16_1024::new()?;
-    hash.add_object(b"test")?;
+    hash.add(b"test")?;
 
-    let checksum = hash.get_checksum();
+    let checksum = hash.checksum();
     assert_eq!(checksum.len(), LtHash16_1024::checksum_size_bytes());
     assert_ne!(checksum, vec![0u8; checksum.len()]); // Should not be all zeros
+    Ok(())
+}
+
+#[test]
+fn test_is_zero() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    assert!(hash.is_zero(), "New hash should be zero");
+
+    hash.add(b"test")?;
+    assert!(!hash.is_zero(), "Hash with data should not be zero");
+
+    hash.remove(b"test")?;
+    assert!(
+        hash.is_zero(),
+        "Hash after removing all data should be zero"
+    );
+
+    hash.reset();
+    assert!(hash.is_zero(), "Hash after reset should be zero");
+    Ok(())
+}
+
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+#[test]
+fn test_digest() -> Result<(), LtHashError> {
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add(b"test")?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.add(b"test")?;
+
+    // Same content should produce same digest
+    assert_eq!(hash1.digest(), hash2.digest());
+
+    // Different content should produce different digest
+    hash2.add(b"more")?;
+    assert_ne!(hash1.digest(), hash2.digest());
+
+    // Digest should be 32 bytes
+    assert_eq!(hash1.digest().len(), 32);
     Ok(())
 }
 
@@ -77,10 +117,10 @@ fn test_lthash_vectors() -> Result<(), LtHashError> {
         let mut hash = LtHash16_1024::new()?;
 
         if !vector.input.is_empty() {
-            hash.add_object(vector.input)?;
+            hash.add(vector.input)?;
         }
 
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -103,9 +143,9 @@ fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
     for vector in test_vectors::blake3_lthash::LTHASH_16_1024_VECTORS.iter() {
         let mut hash = LtHash16_1024::new()?;
         if !vector.input.is_empty() {
-            hash.add_object(vector.input)?;
+            hash.add(vector.input)?;
         }
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -120,9 +160,9 @@ fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
     for vector in test_vectors::blake3_lthash::LTHASH_20_1008_VECTORS.iter() {
         let mut hash = LtHash20_1008::new()?;
         if !vector.input.is_empty() {
-            hash.add_object(vector.input)?;
+            hash.add(vector.input)?;
         }
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -137,9 +177,9 @@ fn test_blake3_lthash_vectors() -> Result<(), LtHashError> {
     for vector in test_vectors::blake3_lthash::LTHASH_32_1024_VECTORS.iter() {
         let mut hash = LtHash32_1024::new()?;
         if !vector.input.is_empty() {
-            hash.add_object(vector.input)?;
+            hash.add(vector.input)?;
         }
-        let result: String = hash.get_checksum()[..16]
+        let result: String = hash.checksum()[..16]
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
@@ -159,26 +199,19 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
     let mut hash1 = LtHash16_1024::new()?;
     let mut hash2 = LtHash16_1024::new()?;
 
-    hash1.add_object(b"a")?;
-    hash1.add_object(b"b")?;
+    hash1.add(b"a")?.add(b"b")?;
+    hash2.add(b"b")?.add(b"a")?;
 
-    hash2.add_object(b"b")?;
-    hash2.add_object(b"a")?;
-
-    assert_eq!(
-        hash1.get_checksum(),
-        hash2.get_checksum(),
-        "Commutativity failed"
-    );
+    assert_eq!(hash1.checksum(), hash2.checksum(), "Commutativity failed");
 
     // Test additive inverse: a+b-a == b
-    hash1.remove_object(b"a")?;
+    hash1.remove(b"a")?;
     let mut hash_just_b = LtHash16_1024::new()?;
-    hash_just_b.add_object(b"b")?;
+    hash_just_b.add(b"b")?;
 
     assert_eq!(
-        hash1.get_checksum(),
-        hash_just_b.get_checksum(),
+        hash1.checksum(),
+        hash_just_b.checksum(),
         "Additive inverse failed"
     );
 
@@ -187,15 +220,14 @@ fn test_homomorphic_properties() -> Result<(), LtHashError> {
     let mut h_b = LtHash16_1024::new()?;
     let mut h_ab = LtHash16_1024::new()?;
 
-    h_a.add_object(b"a")?;
-    h_b.add_object(b"b")?;
-    h_ab.add_object(b"a")?;
-    h_ab.add_object(b"b")?;
+    h_a.add(b"a")?;
+    h_b.add(b"b")?;
+    h_ab.add(b"a")?.add(b"b")?;
 
     let h_sum = h_a + h_b;
     assert_eq!(
-        h_sum.get_checksum(),
-        h_ab.get_checksum(),
+        h_sum.checksum(),
+        h_ab.checksum(),
         "Homomorphic addition failed"
     );
 
@@ -209,39 +241,121 @@ fn test_streaming_equals_inmemory() -> Result<(), LtHashError> {
 
     // Hash using in-memory method
     let mut hash_mem = LtHash16_1024::new()?;
-    hash_mem.add_object(&data)?;
+    hash_mem.add(&data)?;
 
     // Hash using streaming method
     let mut hash_stream = LtHash16_1024::new()?;
-    hash_stream.add_object_stream(std::io::Cursor::new(&data))?;
+    hash_stream.add_stream(std::io::Cursor::new(&data))?;
 
     assert_eq!(
-        hash_mem.get_checksum(),
-        hash_stream.get_checksum(),
+        hash_mem.checksum(),
+        hash_stream.checksum(),
         "Streaming and in-memory hashing produced different results"
     );
 
-    // Also test remove_object_stream
+    // Also test remove_stream with chaining
     let mut hash_mem2 = LtHash16_1024::new()?;
-    hash_mem2.add_object(&data)?;
-    hash_mem2.remove_object(&data)?;
+    hash_mem2.add(&data)?.remove(&data)?;
 
     let mut hash_stream2 = LtHash16_1024::new()?;
-    hash_stream2.add_object_stream(std::io::Cursor::new(&data))?;
-    hash_stream2.remove_object_stream(std::io::Cursor::new(&data))?;
+    hash_stream2
+        .add_stream(std::io::Cursor::new(&data))?
+        .remove_stream(std::io::Cursor::new(&data))?;
 
     assert_eq!(
-        hash_mem2.get_checksum(),
-        hash_stream2.get_checksum(),
+        hash_mem2.checksum(),
+        hash_stream2.checksum(),
         "Streaming remove produced different results"
     );
 
     // Both should be back to zero (empty set)
     let empty_hash = LtHash16_1024::new()?;
     assert_eq!(
-        hash_stream2.get_checksum(),
-        empty_hash.get_checksum(),
+        hash_stream2.checksum(),
+        empty_hash.checksum(),
         "add then remove should equal empty hash"
+    );
+
+    Ok(())
+}
+
+/// Test interoperability with Solana's BLAKE3-based LtHash implementation.
+///
+/// This verifies that our implementation produces identical internal state to Solana's
+/// lattice-hash crate, enabling cross-platform verification. The test compares the first
+/// 16 u16 values (32 bytes) of the internal checksum state against Solana's test vectors.
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+#[test]
+fn test_solana_interoperability() -> Result<(), LtHashError> {
+    for vector in test_vectors::solana_interop::VECTORS.iter() {
+        let mut hash = LtHash16_1024::new()?;
+        hash.add(vector.input)?;
+
+        // Verify internal state matches (first 32 bytes = first 16 u16 values)
+        let checksum = hash.checksum();
+
+        // Convert first 32 bytes to u16 array (little-endian)
+        let mut actual_u16s = [0u16; 16];
+        for i in 0..16 {
+            actual_u16s[i] = u16::from_le_bytes([checksum[i * 2], checksum[i * 2 + 1]]);
+        }
+
+        assert_eq!(
+            actual_u16s, vector.expected_first_u16s,
+            "Internal state mismatch for input {:?}. Our implementation produces \
+            different checksum state than Solana's lattice-hash.",
+            vector.name
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_add_all_remove_all() -> Result<(), LtHashError> {
+    let items: Vec<&[u8]> = vec![b"alpha", b"beta", b"gamma"];
+
+    // add_all should equal sequential adds
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add_all(&items)?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    for item in &items {
+        hash2.add(item)?;
+    }
+
+    assert_eq!(
+        hash1.checksum(),
+        hash2.checksum(),
+        "add_all should equal sequential adds"
+    );
+
+    // remove_all should work correctly
+    let mut hash3 = LtHash16_1024::new()?;
+    hash3.add_all(&items)?;
+    let to_remove: Vec<&[u8]> = vec![b"alpha", b"beta"];
+    hash3.remove_all(&to_remove)?;
+
+    let mut hash4 = LtHash16_1024::new()?;
+    hash4.add(b"gamma")?;
+
+    assert_eq!(
+        hash3.checksum(),
+        hash4.checksum(),
+        "remove_all should leave only remaining items"
+    );
+
+    // Chaining should work
+    let mut hash5 = LtHash16_1024::new()?;
+    hash5.add_all(&[b"a", b"b", b"c"])?.remove_all(&[b"a"])?;
+
+    let mut hash6 = LtHash16_1024::new()?;
+    hash6.add(b"b")?.add(b"c")?;
+
+    assert_eq!(
+        hash5.checksum(),
+        hash6.checksum(),
+        "chained add_all/remove_all should work"
     );
 
     Ok(())
@@ -263,37 +377,35 @@ fn test_parallel_equals_sequential() -> Result<(), LtHashError> {
     // Hash sequentially
     let mut hash_seq = LtHash16_1024::new()?;
     for obj in &objects {
-        hash_seq.add_object(obj)?;
+        hash_seq.add(obj)?;
     }
 
     // Hash in parallel
     let mut hash_par = LtHash16_1024::new()?;
-    hash_par.add_objects_parallel(&objects)?;
+    hash_par.add_parallel(&objects)?;
 
     assert_eq!(
-        hash_seq.get_checksum(),
-        hash_par.get_checksum(),
+        hash_seq.checksum(),
+        hash_par.checksum(),
         "Parallel and sequential hashing produced different results"
     );
 
-    // Also test from_objects_parallel
-    let hash_par2 = LtHash16_1024::from_objects_parallel(&objects)?;
+    // Also test from_parallel
+    let hash_par2 = LtHash16_1024::from_parallel(&objects)?;
     assert_eq!(
-        hash_seq.get_checksum(),
-        hash_par2.get_checksum(),
-        "from_objects_parallel produced different results"
+        hash_seq.checksum(),
+        hash_par2.checksum(),
+        "from_parallel produced different results"
     );
 
     // Test with readers
-    let readers: Vec<std::io::Cursor<&[u8]>> = objects
-        .iter()
-        .map(|o| std::io::Cursor::new(*o))
-        .collect();
+    let readers: Vec<std::io::Cursor<&[u8]>> =
+        objects.iter().map(|o| std::io::Cursor::new(*o)).collect();
 
-    let hash_par_stream = LtHash16_1024::from_readers_parallel(readers)?;
+    let hash_par_stream = LtHash16_1024::from_streams_parallel(readers)?;
     assert_eq!(
-        hash_seq.get_checksum(),
-        hash_par_stream.get_checksum(),
+        hash_seq.checksum(),
+        hash_par_stream.checksum(),
         "Parallel streaming produced different results"
     );
 

@@ -7,10 +7,10 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use lthash::{LtHash16_1024, LtHash20_1008, LtHash32_1024};
 
-#[cfg(feature = "blake3-backend")]
-use lthash::Blake3Xof;
 #[cfg(feature = "folly-compat")]
 use lthash::Blake2xb;
+#[cfg(feature = "blake3-backend")]
+use lthash::Blake3Xof;
 
 /// Benchmark BLAKE3 XOF at various output sizes (default)
 #[cfg(feature = "blake3-backend")]
@@ -70,7 +70,7 @@ fn bench_blake2xb(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark LtHash add_object operations
+/// Benchmark LtHash add operations
 fn bench_lthash_add(c: &mut Criterion) {
     let mut group = c.benchmark_group("lthash_add");
 
@@ -84,7 +84,7 @@ fn bench_lthash_add(c: &mut Criterion) {
         group.bench_function(format!("16_1024_add_{size}B"), |b| {
             let mut hash = LtHash16_1024::new().unwrap();
             b.iter(|| {
-                hash.add_object(black_box(&object)).unwrap();
+                hash.add(black_box(&object)).unwrap();
             });
         });
 
@@ -92,7 +92,7 @@ fn bench_lthash_add(c: &mut Criterion) {
         group.bench_function(format!("20_1008_add_{size}B"), |b| {
             let mut hash = LtHash20_1008::new().unwrap();
             b.iter(|| {
-                hash.add_object(black_box(&object)).unwrap();
+                hash.add(black_box(&object)).unwrap();
             });
         });
 
@@ -100,7 +100,7 @@ fn bench_lthash_add(c: &mut Criterion) {
         group.bench_function(format!("32_1024_add_{size}B"), |b| {
             let mut hash = LtHash32_1024::new().unwrap();
             b.iter(|| {
-                hash.add_object(black_box(&object)).unwrap();
+                hash.add(black_box(&object)).unwrap();
             });
         });
     }
@@ -114,8 +114,8 @@ fn bench_lthash_combine(c: &mut Criterion) {
 
     let mut hash1 = LtHash16_1024::new().unwrap();
     let mut hash2 = LtHash16_1024::new().unwrap();
-    hash1.add_object(b"test data 1").unwrap();
-    hash2.add_object(b"test data 2").unwrap();
+    hash1.add(b"test data 1").unwrap();
+    hash2.add(b"test data 2").unwrap();
 
     group.bench_function("16_1024_try_add", |b| {
         let mut hash_a = hash1.clone();
@@ -133,8 +133,8 @@ fn bench_lthash_combine(c: &mut Criterion) {
 
     let mut hash1_32 = LtHash32_1024::new().unwrap();
     let mut hash2_32 = LtHash32_1024::new().unwrap();
-    hash1_32.add_object(b"test data 1").unwrap();
-    hash2_32.add_object(b"test data 2").unwrap();
+    hash1_32.add(b"test data 1").unwrap();
+    hash2_32.add(b"test data 2").unwrap();
 
     group.bench_function("32_1024_try_add", |b| {
         let mut hash_a = hash1_32.clone();
@@ -152,13 +152,13 @@ fn bench_checksum_compare(c: &mut Criterion) {
 
     let mut hash1 = LtHash16_1024::new().unwrap();
     let mut hash2 = LtHash16_1024::new().unwrap();
-    hash1.add_object(b"same data").unwrap();
-    hash2.add_object(b"same data").unwrap();
+    hash1.add(b"same data").unwrap();
+    hash2.add(b"same data").unwrap();
 
-    let checksum = hash1.get_checksum().to_vec();
+    let checksum = hash1.checksum().to_vec();
 
-    group.bench_function("16_1024_checksum_equals", |b| {
-        b.iter(|| hash1.checksum_equals(black_box(&checksum)).unwrap());
+    group.bench_function("16_1024_checksum_eq", |b| {
+        b.iter(|| hash1.checksum_eq(black_box(&checksum)).unwrap());
     });
 
     group.bench_function("16_1024_eq", |b| {
@@ -215,7 +215,7 @@ fn bench_parallel(c: &mut Criterion) {
         b.iter(|| {
             let mut hash = LtHash16_1024::new().unwrap();
             for obj in &object_refs {
-                hash.add_object(black_box(obj)).unwrap();
+                hash.add(black_box(obj)).unwrap();
             }
             hash
         });
@@ -229,7 +229,7 @@ fn bench_parallel(c: &mut Criterion) {
                 .par_iter()
                 .map(|obj| {
                     let mut h = LtHash16_1024::new().unwrap();
-                    h.add_object(black_box(obj)).unwrap();
+                    h.add(black_box(obj)).unwrap();
                     h
                 })
                 .collect();
@@ -264,8 +264,7 @@ fn bench_parallel(c: &mut Criterion) {
             b.iter(|| {
                 let mut hash = LtHash16_1024::new().unwrap();
                 for obj in &large_objects {
-                    hash.add_object_stream(Cursor::new(black_box(obj)))
-                        .unwrap();
+                    hash.add_stream(Cursor::new(black_box(obj))).unwrap();
                 }
                 hash
             });
@@ -281,7 +280,7 @@ fn bench_parallel(c: &mut Criterion) {
                     .par_iter()
                     .map(|obj| {
                         let mut h = LtHash16_1024::new().unwrap();
-                        h.add_object_stream(Cursor::new(black_box(obj))).unwrap();
+                        h.add_stream(Cursor::new(black_box(obj))).unwrap();
                         h
                     })
                     .collect();

@@ -11,42 +11,41 @@ fn main() -> Result<(), LtHashError> {
 
     println!("Testing LtHash implementation...");
 
-    // Test LtHash
+    // Test LtHash with method chaining
     let mut lthash = LtHash16_1024::new()?;
 
-    // Add some objects
-    lthash.add_object(b"object1")?;
-    lthash.add_object(b"object2")?;
-    lthash.add_object(b"object3")?;
+    // Add some data using chaining
+    lthash.add(b"object1")?.add(b"object2")?.add(b"object3")?;
 
     println!(
-        "Checksum after adding 3 objects: {}",
-        hex::encode(lthash.get_checksum())
+        "Checksum after adding 3 items: {}",
+        hex::encode(lthash.checksum())
     );
 
-    // Remove one object
-    lthash.remove_object(b"object2")?;
-
-    lthash.add_object(b"object4")?;
-    lthash.add_object(b"object5")?;
+    // Remove one item, then add more using chaining
+    lthash
+        .remove(b"object2")?
+        .add(b"object4")?
+        .add(b"object5")?;
 
     println!(
-        "Checksum after removing 1 object: {}",
-        hex::encode(lthash.get_checksum())
+        "Checksum after removing 1 item: {}",
+        hex::encode(lthash.checksum())
     );
 
-    // Test commutativity - add objects in different order
+    // Test commutativity - add items in different order using chaining
     let mut lthash2 = LtHash16_1024::new()?;
-    lthash2.add_object(b"object3")?;
-    lthash2.add_object(b"object1")?;
-    lthash2.add_object(b"object5")?;
-    lthash2.add_object(b"object4")?;
-    lthash2.add_object(b"object6")?;
-    lthash2.remove_object(b"object6")?;
+    lthash2
+        .add(b"object3")?
+        .add(b"object1")?
+        .add(b"object5")?
+        .add(b"object4")?
+        .add(b"object6")?
+        .remove(b"object6")?;
 
     println!(
         "Second hash with same objects: {}",
-        hex::encode(lthash2.get_checksum())
+        hex::encode(lthash2.checksum())
     );
 
     if lthash == lthash2 {
