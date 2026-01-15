@@ -2,13 +2,19 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
 use rayon::prelude::*;
 use std::fs::{self, File};
-use std::io::{BufReader, Write};
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+
+/// File info for lazy opening during parallel hashing
+struct FileInfo {
+    path: PathBuf,
+    size: u64,
+}
 
 struct Args {
     directory: String,
@@ -325,9 +331,9 @@ fn hash_directory_flat(
         ));
     }
 
-    let (readers, total_bytes, skipped) = open_files(&files);
+    let (file_infos, total_bytes, skipped) = collect_file_info(&files);
 
-    if readers.is_empty() {
+    if file_infos.is_empty() {
         return Ok((
             LtHash16_1024::new()?,
             Stats {
@@ -340,7 +346,7 @@ fn hash_directory_flat(
         ));
     }
 
-    let hash = LtHash16_1024::from_streams_parallel(readers)?;
+    let hash = hash_files_parallel(file_infos)?;
     progress.add_files(files_found - skipped, total_bytes);
 
     Ok((
@@ -425,14 +431,14 @@ fn hash_dir_recursive_inner(
     let mut stats = Stats::new();
     stats.files_found = files.len();
 
-    // Hash all files in this directory
-    let (readers, bytes, skipped) = open_files(&files);
+    // Hash all files in this directory using optimized I/O
+    let (file_infos, bytes, skipped) = collect_file_info(&files);
     stats.files_skipped = skipped;
     stats.total_bytes = bytes;
 
-    let mut dir_hash = if !readers.is_empty() {
-        stats.files_hashed = readers.len();
-        let hash = LtHash16_1024::from_streams_parallel(readers)?;
+    let mut dir_hash = if !file_infos.is_empty() {
+        stats.files_hashed = file_infos.len();
+        let hash = hash_files_parallel(file_infos)?;
         progress.add_files(stats.files_hashed, bytes);
         hash
     } else {
@@ -496,30 +502,21 @@ fn collect_files(
     Ok(files)
 }
 
-fn open_files(files: &[PathBuf]) -> (Vec<BufReader<File>>, u64, usize) {
-    let mut readers = Vec::with_capacity(files.len());
+/// Collect file info without opening files (lazy opening during parallel hash)
+fn collect_file_info(files: &[PathBuf]) -> (Vec<FileInfo>, u64, usize) {
+    let mut file_infos = Vec::with_capacity(files.len());
     let mut total_bytes = 0u64;
     let mut skipped = 0;
 
     for path in files {
-        match File::open(path) {
-            Ok(file) => {
-                if let Ok(metadata) = file.metadata() {
-                    total_bytes += metadata.len();
-                }
-
-                // Hint to kernel: sequential access, don't keep in cache after reading
-                #[cfg(unix)]
-                unsafe {
-                    libc::posix_fadvise(
-                        file.as_raw_fd(),
-                        0,
-                        0, // 0 means entire file
-                        libc::POSIX_FADV_SEQUENTIAL | libc::POSIX_FADV_NOREUSE,
-                    );
-                }
-
-                readers.push(BufReader::new(file));
+        match fs::metadata(path) {
+            Ok(metadata) => {
+                let size = metadata.len();
+                total_bytes += size;
+                file_infos.push(FileInfo {
+                    path: path.clone(),
+                    size,
+                });
             }
             Err(e) => {
                 eprintln!("warning: skipping '{}': {}", path.display(), e);
@@ -528,5 +525,77 @@ fn open_files(files: &[PathBuf]) -> (Vec<BufReader<File>>, u64, usize) {
         }
     }
 
-    (readers, total_bytes, skipped)
+    (file_infos, total_bytes, skipped)
+}
+
+/// Hash a single file with optimized I/O:
+/// - Opens file lazily (not pre-opened)
+/// - Uses SEQUENTIAL fadvise for readahead
+/// - Reads directly without BufReader (blake3_xof has 64KB internal buffer)
+/// - Calls DONTNEED after reading to evict from page cache
+fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let file = File::open(&info.path)?;
+    let fd = file.as_raw_fd();
+
+    // Hint to kernel: sequential access pattern, double readahead
+    #[cfg(unix)]
+    unsafe {
+        libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+    }
+
+    // Hash file directly (no BufReader - blake3_xof uses 64KB buffer internally)
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 65536]; // Match blake3_xof buffer size
+    let mut file_reader = file;
+
+    loop {
+        let n = file_reader.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+
+    // Generate 2KB XOF output for LtHash16_1024
+    let mut output = vec![0u8; 2048];
+    hasher.finalize_xof().fill(&mut output);
+
+    // Evict file data from page cache - this actually works (unlike NOREUSE)
+    #[cfg(unix)]
+    unsafe {
+        libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
+    }
+
+    Ok(output)
+}
+
+/// Hash multiple files in parallel with optimized I/O
+fn hash_files_parallel(
+    file_infos: Vec<FileInfo>,
+) -> Result<LtHash16_1024, Box<dyn std::error::Error + Send + Sync>> {
+    if file_infos.is_empty() {
+        return Ok(LtHash16_1024::new()?);
+    }
+
+    // Hash each file in parallel, combining results with tree reduction
+    let combined: Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> = file_infos
+        .par_iter()
+        .map(|info| hash_file_optimized(info))
+        .try_reduce(
+            || vec![0u8; 2048],
+            |mut a, b| {
+                // Element-wise wrapping addition (LtHash16 uses 16-bit elements)
+                for i in 0..1024 {
+                    let offset = i * 2;
+                    let av = u16::from_le_bytes([a[offset], a[offset + 1]]);
+                    let bv = u16::from_le_bytes([b[offset], b[offset + 1]]);
+                    let sum = av.wrapping_add(bv);
+                    a[offset..offset + 2].copy_from_slice(&sum.to_le_bytes());
+                }
+                Ok(a)
+            },
+        );
+
+    LtHash16_1024::with_checksum(&combined?)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
 }
