@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// File info for lazy opening during parallel hashing
 struct FileInfo {
     path: PathBuf,
     size: u64,
@@ -23,7 +22,7 @@ struct Args {
     progress: bool,
 }
 
-/// Thread-safe progress tracking with ETA estimation
+/// Thread-safe progress tracking with ETA estimation.
 struct Progress {
     files_processed: AtomicUsize,
     dirs_processed: AtomicUsize,
@@ -315,46 +314,22 @@ fn hash_directory_flat(
     include_hidden: bool,
     progress: &Arc<Progress>,
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
-    let files = collect_files(dir, include_hidden)?;
-    let files_found = files.len();
-
-    if files_found == 0 {
-        return Ok((
-            LtHash16_1024::new()?,
-            Stats {
-                files_found: 0,
-                files_hashed: 0,
-                files_skipped: 0,
-                dirs_hashed: 0,
-                total_bytes: 0,
-            },
-        ));
-    }
-
-    let (file_infos, total_bytes, skipped) = collect_file_info(&files);
+    let (file_infos, total_bytes) = collect_file_infos(dir, include_hidden)?;
+    let files_found = file_infos.len();
 
     if file_infos.is_empty() {
-        return Ok((
-            LtHash16_1024::new()?,
-            Stats {
-                files_found,
-                files_hashed: 0,
-                files_skipped: skipped,
-                dirs_hashed: 0,
-                total_bytes: 0,
-            },
-        ));
+        return Ok((LtHash16_1024::new()?, Stats::new()));
     }
 
     let hash = hash_files_parallel(file_infos)?;
-    progress.add_files(files_found - skipped, total_bytes);
+    progress.add_files(files_found, total_bytes);
 
     Ok((
         hash,
         Stats {
             files_found,
-            files_hashed: files_found - skipped,
-            files_skipped: skipped,
+            files_hashed: files_found,
+            files_skipped: 0,
             dirs_hashed: 0,
             total_bytes,
         },
@@ -378,8 +353,9 @@ fn hash_dir_recursive_inner(
     include_hidden: bool,
     progress: &Arc<Progress>,
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
-    let mut files = Vec::new();
+    let mut file_infos = Vec::new();
     let mut subdirs = Vec::new();
+    let mut total_bytes = 0u64;
 
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
@@ -400,12 +376,11 @@ fn hash_dir_recursive_inner(
 
         let path = entry.path();
 
-        // Skip hidden files/dirs unless include_hidden is set
         if !include_hidden && is_hidden(&path) {
             continue;
         }
 
-        // Use symlink_metadata to not follow symlinks
+        // symlink_metadata avoids following symlinks
         let metadata = match fs::symlink_metadata(&path) {
             Ok(m) => m,
             Err(e) => {
@@ -417,46 +392,41 @@ fn hash_dir_recursive_inner(
         let file_type = metadata.file_type();
 
         if file_type.is_file() {
-            files.push(path);
+            let size = metadata.len();
+            total_bytes += size;
+            file_infos.push(FileInfo { path, size });
         } else if file_type.is_dir() {
             subdirs.push(path);
         }
-        // Skip symlinks and other file types (no loops possible)
+        // Symlinks and special files are skipped
     }
 
     // Sort for deterministic ordering
-    files.sort();
+    file_infos.sort_by(|a, b| a.path.cmp(&b.path));
     subdirs.sort();
 
     let mut stats = Stats::new();
-    stats.files_found = files.len();
-
-    // Hash all files in this directory using optimized I/O
-    let (file_infos, bytes, skipped) = collect_file_info(&files);
-    stats.files_skipped = skipped;
-    stats.total_bytes = bytes;
+    stats.files_found = file_infos.len();
+    stats.total_bytes = total_bytes;
 
     let mut dir_hash = if !file_infos.is_empty() {
         stats.files_hashed = file_infos.len();
         let hash = hash_files_parallel(file_infos)?;
-        progress.add_files(stats.files_hashed, bytes);
+        progress.add_files(stats.files_hashed, total_bytes);
         hash
     } else {
         LtHash16_1024::new()?
     };
 
-    // Recursively hash subdirectories in parallel
     let subdir_results: Vec<_> = subdirs
         .par_iter()
         .map(|subdir| hash_dir_recursive_inner(subdir, include_hidden, progress))
         .collect();
 
-    // Merge results from parallel subdirectory processing
     for result in subdir_results {
         let (subdir_hash, subdir_stats) = result?;
         stats.merge(subdir_stats);
         stats.dirs_hashed += 1;
-        // Use try_add to homomorphically combine the hash states
         dir_hash.try_add(&subdir_hash)?;
     }
 
@@ -464,103 +434,67 @@ fn hash_dir_recursive_inner(
     Ok((dir_hash, stats))
 }
 
-fn collect_files(
+/// Collect file info for a flat directory (single stat per file).
+fn collect_file_infos(
     dir: &str,
     include_hidden: bool,
-) -> Result<Vec<PathBuf>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut files = Vec::new();
+) -> Result<(Vec<FileInfo>, u64), Box<dyn std::error::Error + Send + Sync>> {
+    let mut file_infos = Vec::new();
+    let mut total_bytes = 0u64;
 
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => return Err(format!("cannot read directory '{}': {}", dir, e).into()),
     };
 
-    for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
+    for entry in entries.flatten() {
         let path = entry.path();
 
         if !include_hidden && is_hidden(&path) {
             continue;
         }
 
-        // Use symlink_metadata to not follow symlinks
         let metadata = match fs::symlink_metadata(&path) {
             Ok(m) => m,
             Err(_) => continue,
         };
 
         if metadata.file_type().is_file() {
-            files.push(path);
+            let size = metadata.len();
+            total_bytes += size;
+            file_infos.push(FileInfo { path, size });
         }
     }
 
-    files.sort();
-    Ok(files)
+    file_infos.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok((file_infos, total_bytes))
 }
 
-/// Collect file info without opening files (lazy opening during parallel hash)
-fn collect_file_info(files: &[PathBuf]) -> (Vec<FileInfo>, u64, usize) {
-    let mut file_infos = Vec::with_capacity(files.len());
-    let mut total_bytes = 0u64;
-    let mut skipped = 0;
-
-    for path in files {
-        match fs::metadata(path) {
-            Ok(metadata) => {
-                let size = metadata.len();
-                total_bytes += size;
-                file_infos.push(FileInfo {
-                    path: path.clone(),
-                    size,
-                });
-            }
-            Err(e) => {
-                eprintln!("warning: skipping '{}': {}", path.display(), e);
-                skipped += 1;
-            }
-        }
-    }
-
-    (file_infos, total_bytes, skipped)
-}
-
-/// Hash a single file with optimized I/O:
-/// - Opens file lazily (not pre-opened)
-/// - Uses SEQUENTIAL fadvise for readahead
-/// - Reads directly without BufReader (blake3_xof has 64KB internal buffer)
-/// - Calls DONTNEED after reading to evict from page cache
+/// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
 fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    let file = File::open(&info.path)?;
+    let mut file = File::open(&info.path)?;
     let fd = file.as_raw_fd();
 
-    // Hint to kernel: sequential access pattern, double readahead
     #[cfg(unix)]
     unsafe {
         libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
     }
 
-    // Hash file directly (no BufReader - blake3_xof uses 64KB buffer internally)
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; 65536]; // Match blake3_xof buffer size
-    let mut file_reader = file;
+    let mut buffer = [0u8; 65536];
 
     loop {
-        let n = file_reader.read(&mut buffer)?;
+        let n = file.read(&mut buffer)?;
         if n == 0 {
             break;
         }
         hasher.update(&buffer[..n]);
     }
 
-    // Generate 2KB XOF output for LtHash16_1024
     let mut output = vec![0u8; 2048];
     hasher.finalize_xof().fill(&mut output);
 
-    // Evict file data from page cache - this actually works (unlike NOREUSE)
+    // Evict from page cache (NOREUSE is a no-op on Linux < 6.3)
     #[cfg(unix)]
     unsafe {
         libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
@@ -569,7 +503,7 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
     Ok(output)
 }
 
-/// Hash multiple files in parallel with optimized I/O
+/// Hash files in parallel, combining checksums via tree reduction.
 fn hash_files_parallel(
     file_infos: Vec<FileInfo>,
 ) -> Result<LtHash16_1024, Box<dyn std::error::Error + Send + Sync>> {
@@ -577,14 +511,13 @@ fn hash_files_parallel(
         return Ok(LtHash16_1024::new()?);
     }
 
-    // Hash each file in parallel, combining results with tree reduction
     let combined: Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> = file_infos
         .par_iter()
         .map(|info| hash_file_optimized(info))
         .try_reduce(
             || vec![0u8; 2048],
             |mut a, b| {
-                // Element-wise wrapping addition (LtHash16 uses 16-bit elements)
+                // LtHash16: element-wise wrapping u16 addition
                 for i in 0..1024 {
                     let offset = i * 2;
                     let av = u16::from_le_bytes([a[offset], a[offset + 1]]);
