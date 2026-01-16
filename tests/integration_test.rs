@@ -765,11 +765,11 @@ fn test_checksum_eq() -> Result<(), LtHashError> {
 #[test]
 fn test_try_add_sub_key_mismatch() -> Result<(), LtHashError> {
     let mut hash1 = LtHash16_1024::new()?;
-    hash1.set_key(b"key1")?;
+    hash1.set_key(b"test_key_one_123")?;
     hash1.add(b"data")?;
 
     let mut hash2 = LtHash16_1024::new()?;
-    hash2.set_key(b"key2")?;
+    hash2.set_key(b"test_key_two_456")?;
     hash2.add(b"data")?;
 
     // try_add should fail with key mismatch
@@ -993,11 +993,11 @@ fn test_large_data_streaming() -> Result<(), LtHashError> {
 #[test]
 fn test_clear_key() -> Result<(), LtHashError> {
     let mut hash1 = LtHash16_1024::new()?;
-    hash1.set_key(b"secret")?;
+    hash1.set_key(b"secret_key_12345")?;
     hash1.add(b"data")?;
 
     let mut hash2 = LtHash16_1024::new()?;
-    hash2.set_key(b"secret")?;
+    hash2.set_key(b"secret_key_12345")?;
     hash2.clear_key();
     hash2.add(b"data")?;
 
@@ -1016,11 +1016,11 @@ fn test_clear_key() -> Result<(), LtHashError> {
 #[should_panic(expected = "Cannot add LtHashes with different keys")]
 fn test_add_operator_key_mismatch_panics() {
     let mut hash1 = LtHash16_1024::new().unwrap();
-    hash1.set_key(b"key1").unwrap();
+    hash1.set_key(b"test_key_one_123").unwrap();
     hash1.add(b"data").unwrap();
 
     let mut hash2 = LtHash16_1024::new().unwrap();
-    hash2.set_key(b"key2").unwrap();
+    hash2.set_key(b"test_key_two_456").unwrap();
     hash2.add(b"data").unwrap();
 
     let _ = hash1 + hash2; // Should panic
@@ -1031,11 +1031,11 @@ fn test_add_operator_key_mismatch_panics() {
 #[should_panic(expected = "Cannot subtract LtHashes with different keys")]
 fn test_sub_operator_key_mismatch_panics() {
     let mut hash1 = LtHash16_1024::new().unwrap();
-    hash1.set_key(b"key1").unwrap();
+    hash1.set_key(b"test_key_one_123").unwrap();
     hash1.add(b"data").unwrap();
 
     let mut hash2 = LtHash16_1024::new().unwrap();
-    hash2.set_key(b"key2").unwrap();
+    hash2.set_key(b"test_key_two_456").unwrap();
     hash2.add(b"data").unwrap();
 
     let _ = hash1 - hash2; // Should panic
@@ -1238,11 +1238,11 @@ fn test_key_affects_hash() -> Result<(), LtHashError> {
     let data = b"test data for keyed hashing";
 
     let mut hash1 = LtHash16_1024::new()?;
-    hash1.set_key(b"key1")?;
+    hash1.set_key(b"test_key_one_123")?;
     hash1.add(data)?;
 
     let mut hash2 = LtHash16_1024::new()?;
-    hash2.set_key(b"key2")?;
+    hash2.set_key(b"test_key_two_456")?;
     hash2.add(data)?;
 
     let mut hash3 = LtHash16_1024::new()?;
