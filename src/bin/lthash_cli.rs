@@ -28,7 +28,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
 use std::env;
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io;
 use std::process;
 
 const USAGE: &str = r#"lthash - Homomorphic hash tool
@@ -190,8 +190,7 @@ fn hash_files_sequential(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn st
     for file_arg in file_args {
         let file =
             File::open(file_arg).map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
-        let reader = BufReader::new(file);
-        hash.add_stream(reader)?;
+        hash.add_stream(file)?;
     }
 
     Ok(hash)
@@ -201,18 +200,13 @@ fn hash_files_sequential(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn st
 #[cfg(feature = "parallel")]
 fn hash_files_parallel(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
     // Open all files first to catch errors early
-    let readers: Result<Vec<_>, _> = file_args
+    let files: Result<Vec<_>, _> = file_args
         .iter()
-        .map(|path| {
-            File::open(path)
-                .map(BufReader::new)
-                .map_err(|e| format!("cannot open '{}': {}", path, e))
-        })
+        .map(|path| File::open(path).map_err(|e| format!("cannot open '{}': {}", path, e)))
         .collect();
-    let readers = readers?;
 
-    // Hash in parallel
-    LtHash16_1024::from_streams_parallel(readers).map_err(Into::into)
+    // Hash in parallel (blake3_xof uses 64KB internal buffer, no BufReader needed)
+    LtHash16_1024::from_streams_parallel(files?).map_err(Into::into)
 }
 
 /// Read and decode a hash from argument or stdin
