@@ -651,3 +651,813 @@ fn test_blake3_rejects_zero_length_output() {
         "Blake3Xof should reject zero-length output"
     );
 }
+
+// ============================================================================
+// Additional coverage tests for edge cases and error paths
+// ============================================================================
+
+/// Test Clone implementation
+#[test]
+fn test_clone() -> Result<(), LtHashError> {
+    let mut original = LtHash16_1024::new()?;
+    original.add(b"test data")?;
+
+    let cloned = original.clone();
+
+    // Cloned should have same checksum
+    assert_eq!(original.checksum(), cloned.checksum());
+
+    // Modifying original shouldn't affect clone
+    original.add(b"more data")?;
+    assert_ne!(original.checksum(), cloned.checksum());
+
+    Ok(())
+}
+
+/// Test Debug implementation
+#[test]
+fn test_debug() -> Result<(), LtHashError> {
+    let hash = LtHash16_1024::new()?;
+    let debug_str = format!("{:?}", hash);
+
+    // Debug output should contain expected fields
+    assert!(debug_str.contains("LtHash"));
+    assert!(debug_str.contains("checksum_len"));
+    assert!(debug_str.contains("has_key"));
+
+    Ok(())
+}
+
+/// Test with_checksum rejects wrong size
+#[test]
+fn test_with_checksum_wrong_size() {
+    // Too small
+    let small_checksum = vec![0u8; 100];
+    let result = LtHash16_1024::with_checksum(&small_checksum);
+    assert!(result.is_err(), "Should reject checksum that's too small");
+
+    // Too large
+    let large_checksum = vec![0u8; 10000];
+    let result = LtHash16_1024::with_checksum(&large_checksum);
+    assert!(result.is_err(), "Should reject checksum that's too large");
+}
+
+/// Test set_key with empty key should fail
+#[test]
+fn test_set_key_empty() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    let result = hash.set_key(b"");
+    assert!(result.is_err(), "Empty key should be rejected");
+    Ok(())
+}
+
+/// Test add_iter and remove_iter methods
+#[test]
+fn test_iter_methods() -> Result<(), LtHashError> {
+    let items = vec![b"one".as_slice(), b"two".as_slice(), b"three".as_slice()];
+
+    // Test add_iter
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add_iter(items.iter().copied())?;
+
+    // Should be equivalent to sequential adds
+    let mut hash2 = LtHash16_1024::new()?;
+    for item in &items {
+        hash2.add(*item)?;
+    }
+    assert_eq!(hash1.checksum(), hash2.checksum());
+
+    // Test remove_iter
+    let to_remove = vec![b"one".as_slice(), b"two".as_slice()];
+    hash1.remove_iter(to_remove.iter().copied())?;
+
+    let mut hash3 = LtHash16_1024::new()?;
+    hash3.add(b"three")?;
+    assert_eq!(hash1.checksum(), hash3.checksum());
+
+    Ok(())
+}
+
+/// Test checksum_eq method
+#[test]
+fn test_checksum_eq() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(b"test")?;
+
+    let checksum = hash.checksum().to_vec();
+
+    // Should return true for matching checksum
+    assert!(hash.checksum_eq(&checksum)?);
+
+    // Should return false for different checksum
+    let mut different = checksum.clone();
+    different[0] ^= 0xFF;
+    assert!(!hash.checksum_eq(&different)?);
+
+    // Should error for wrong size
+    let wrong_size = vec![0u8; 100];
+    assert!(hash.checksum_eq(&wrong_size).is_err());
+
+    Ok(())
+}
+
+/// Test try_add and try_sub with key mismatch
+#[test]
+fn test_try_add_sub_key_mismatch() -> Result<(), LtHashError> {
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.set_key(b"key1")?;
+    hash1.add(b"data")?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.set_key(b"key2")?;
+    hash2.add(b"data")?;
+
+    // try_add should fail with key mismatch
+    let result = hash1.clone().try_add(&hash2);
+    assert!(result.is_err(), "try_add should fail with different keys");
+
+    // try_sub should fail with key mismatch
+    let result = hash1.clone().try_sub(&hash2);
+    assert!(result.is_err(), "try_sub should fail with different keys");
+
+    Ok(())
+}
+
+/// Test try_add and try_sub with matching keys
+#[test]
+fn test_try_add_sub_same_keys() -> Result<(), LtHashError> {
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add(b"data1")?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.add(b"data2")?;
+
+    // try_add should succeed with same (no) keys
+    let mut combined = hash1.clone();
+    combined.try_add(&hash2)?;
+
+    // Verify result
+    let mut expected = LtHash16_1024::new()?;
+    expected.add(b"data1")?.add(b"data2")?;
+    assert_eq!(combined.checksum(), expected.checksum());
+
+    // try_sub should work
+    combined.try_sub(&hash2)?;
+    assert_eq!(combined.checksum(), hash1.checksum());
+
+    Ok(())
+}
+
+/// Test Default implementation
+#[test]
+fn test_default() {
+    let hash: LtHash16_1024 = Default::default();
+    assert!(hash.is_zero());
+}
+
+/// Test Sub and SubAssign operators
+#[test]
+fn test_sub_operators() -> Result<(), LtHashError> {
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add(b"a")?.add(b"b")?.add(b"c")?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.add(b"b")?;
+
+    // Test Sub operator (-)
+    let result = hash1.clone() - hash2.clone();
+
+    let mut expected = LtHash16_1024::new()?;
+    expected.add(b"a")?.add(b"c")?;
+    assert_eq!(result.checksum(), expected.checksum());
+
+    // Test SubAssign operator (-=)
+    let mut hash3 = hash1.clone();
+    hash3 -= hash2;
+    assert_eq!(hash3.checksum(), expected.checksum());
+
+    Ok(())
+}
+
+/// Test LtHash32_1024 variant for coverage
+#[test]
+fn test_lthash32_operations() -> Result<(), LtHashError> {
+    use lthash::LtHash32_1024;
+
+    let mut hash = LtHash32_1024::new()?;
+    assert!(hash.is_zero());
+
+    hash.add(b"test data")?;
+    assert!(!hash.is_zero());
+
+    // Test homomorphic property
+    let mut h1 = LtHash32_1024::new()?;
+    let mut h2 = LtHash32_1024::new()?;
+    h1.add(b"a")?.add(b"b")?;
+    h2.add(b"b")?.add(b"a")?;
+    assert_eq!(h1.checksum(), h2.checksum());
+
+    // Test subtraction
+    h1.remove(b"a")?;
+    let mut h3 = LtHash32_1024::new()?;
+    h3.add(b"b")?;
+    assert_eq!(h1.checksum(), h3.checksum());
+
+    Ok(())
+}
+
+/// Test LtHash20_1008 variant operations
+#[test]
+fn test_lthash20_operations() -> Result<(), LtHashError> {
+    use lthash::LtHash20_1008;
+
+    let mut hash = LtHash20_1008::new()?;
+    assert!(hash.is_zero());
+
+    hash.add(b"test data")?;
+    assert!(!hash.is_zero());
+
+    // Test subtraction restores zero
+    hash.remove(b"test data")?;
+    assert!(hash.is_zero());
+
+    Ok(())
+}
+
+/// Test constant_time_eq with different length slices
+#[test]
+fn test_constant_time_eq_different_lengths() -> Result<(), LtHashError> {
+    // This tests the internal constant_time_eq function via checksum_eq
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(b"test")?;
+
+    // Wrong length should be rejected
+    let wrong_len = vec![0u8; 100];
+    let result = hash.checksum_eq(&wrong_len);
+    assert!(result.is_err(), "Should reject wrong length checksum");
+
+    Ok(())
+}
+
+/// Test element_size_in_bits and element_count methods
+#[test]
+fn test_static_methods() {
+    use lthash::{LtHash20_1008, LtHash32_1024};
+
+    // LtHash16_1024
+    assert_eq!(LtHash16_1024::element_size_in_bits(), 16);
+    assert_eq!(LtHash16_1024::element_count(), 1024);
+    assert_eq!(LtHash16_1024::checksum_size_bytes(), 2048);
+
+    // LtHash20_1008
+    assert_eq!(LtHash20_1008::element_size_in_bits(), 20);
+    assert_eq!(LtHash20_1008::element_count(), 1008);
+
+    // LtHash32_1024
+    assert_eq!(LtHash32_1024::element_size_in_bits(), 32);
+    assert_eq!(LtHash32_1024::element_count(), 1024);
+    assert_eq!(LtHash32_1024::checksum_size_bytes(), 4096);
+}
+
+/// Test parallel add with empty slice
+#[cfg(feature = "parallel")]
+#[test]
+fn test_parallel_empty_items() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(b"initial")?;
+    let before = hash.checksum().to_vec();
+
+    // Empty parallel add should not change hash
+    let empty: Vec<&[u8]> = vec![];
+    hash.add_parallel(&empty)?;
+
+    assert_eq!(hash.checksum(), before.as_slice());
+
+    Ok(())
+}
+
+/// Test parallel streams with empty vector
+#[cfg(feature = "parallel")]
+#[test]
+fn test_parallel_streams_empty() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(b"initial")?;
+    let before = hash.checksum().to_vec();
+
+    // Empty parallel streams should not change hash
+    let empty: Vec<std::io::Cursor<&[u8]>> = vec![];
+    hash.add_streams_parallel(empty)?;
+
+    assert_eq!(hash.checksum(), before.as_slice());
+
+    Ok(())
+}
+
+/// Test digest method (available only for blake3-backend without folly-compat)
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
+#[test]
+fn test_digest_empty() -> Result<(), LtHashError> {
+    let hash = LtHash16_1024::new()?;
+    let digest = hash.digest();
+
+    // Empty hash should have consistent digest
+    assert_eq!(digest.len(), 32);
+
+    // Two empty hashes should have same digest
+    let hash2 = LtHash16_1024::new()?;
+    assert_eq!(hash.digest(), hash2.digest());
+
+    Ok(())
+}
+
+/// Test large data streaming
+#[test]
+fn test_large_data_streaming() -> Result<(), LtHashError> {
+    // Generate 1MB of data
+    let data: Vec<u8> = (0..1_000_000).map(|i| (i % 256) as u8).collect();
+
+    // Hash using streaming
+    let mut hash_stream = LtHash16_1024::new()?;
+    hash_stream.add_stream(std::io::Cursor::new(&data))?;
+
+    // Hash using in-memory
+    let mut hash_mem = LtHash16_1024::new()?;
+    hash_mem.add(&data)?;
+
+    assert_eq!(hash_stream.checksum(), hash_mem.checksum());
+
+    Ok(())
+}
+
+/// Test clear_key actually clears the key
+#[test]
+fn test_clear_key() -> Result<(), LtHashError> {
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.set_key(b"secret")?;
+    hash1.add(b"data")?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.set_key(b"secret")?;
+    hash2.clear_key();
+    hash2.add(b"data")?;
+
+    // After clearing key, hash2 should behave like unkeyed
+    let mut hash3 = LtHash16_1024::new()?;
+    hash3.add(b"data")?;
+
+    assert_eq!(hash2.checksum(), hash3.checksum());
+    assert_ne!(hash1.checksum(), hash2.checksum());
+
+    Ok(())
+}
+
+/// Test that Add operator panics with different keys
+#[test]
+#[should_panic(expected = "Cannot add LtHashes with different keys")]
+fn test_add_operator_key_mismatch_panics() {
+    let mut hash1 = LtHash16_1024::new().unwrap();
+    hash1.set_key(b"key1").unwrap();
+    hash1.add(b"data").unwrap();
+
+    let mut hash2 = LtHash16_1024::new().unwrap();
+    hash2.set_key(b"key2").unwrap();
+    hash2.add(b"data").unwrap();
+
+    let _ = hash1 + hash2; // Should panic
+}
+
+/// Test that Sub operator panics with different keys
+#[test]
+#[should_panic(expected = "Cannot subtract LtHashes with different keys")]
+fn test_sub_operator_key_mismatch_panics() {
+    let mut hash1 = LtHash16_1024::new().unwrap();
+    hash1.set_key(b"key1").unwrap();
+    hash1.add(b"data").unwrap();
+
+    let mut hash2 = LtHash16_1024::new().unwrap();
+    hash2.set_key(b"key2").unwrap();
+    hash2.add(b"data").unwrap();
+
+    let _ = hash1 - hash2; // Should panic
+}
+
+/// Test boundary conditions - very small input
+#[test]
+fn test_small_inputs() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+
+    // Empty input
+    hash.add(b"")?;
+    let empty_hash = hash.checksum().to_vec();
+
+    // Single byte
+    hash.reset();
+    hash.add(&[0u8])?;
+    assert_ne!(hash.checksum(), empty_hash.as_slice());
+
+    // Single byte different value
+    hash.reset();
+    hash.add(&[1u8])?;
+    let one_hash = hash.checksum().to_vec();
+
+    hash.reset();
+    hash.add(&[0u8])?;
+    assert_ne!(hash.checksum(), one_hash.as_slice());
+
+    Ok(())
+}
+
+/// Test reset functionality
+#[test]
+fn test_reset() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(b"some data")?;
+    assert!(!hash.is_zero());
+
+    hash.reset();
+    assert!(hash.is_zero());
+
+    // Can add data after reset
+    hash.add(b"new data")?;
+    assert!(!hash.is_zero());
+
+    Ok(())
+}
+
+/// Test that streaming and non-streaming produce same results for edge cases
+#[test]
+fn test_streaming_edge_cases() -> Result<(), LtHashError> {
+    // Test with data size exactly at buffer boundary (64KB)
+    let data = vec![0xABu8; 65536];
+
+    let mut hash_stream = LtHash16_1024::new()?;
+    hash_stream.add_stream(std::io::Cursor::new(&data))?;
+
+    let mut hash_mem = LtHash16_1024::new()?;
+    hash_mem.add(&data)?;
+
+    assert_eq!(hash_stream.checksum(), hash_mem.checksum());
+
+    // Test with data size slightly over buffer (64KB + 1)
+    let data2 = vec![0xCDu8; 65537];
+
+    let mut hash_stream2 = LtHash16_1024::new()?;
+    hash_stream2.add_stream(std::io::Cursor::new(&data2))?;
+
+    let mut hash_mem2 = LtHash16_1024::new()?;
+    hash_mem2.add(&data2)?;
+
+    assert_eq!(hash_stream2.checksum(), hash_mem2.checksum());
+
+    Ok(())
+}
+
+// ============================================================================
+// Stress tests and edge case exploration to find breaking inputs
+// ============================================================================
+
+/// Test that adding and removing the same element many times returns to zero
+#[test]
+fn test_add_remove_stress() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+    let data = b"stress test data";
+
+    // Add and remove many times
+    for _ in 0..1000 {
+        hash.add(data)?;
+        hash.remove(data)?;
+    }
+
+    assert!(hash.is_zero(), "Hash should return to zero after equal adds and removes");
+    Ok(())
+}
+
+/// Test wrapping behavior at u16 boundaries (LtHash16)
+#[test]
+fn test_u16_wrapping() -> Result<(), LtHashError> {
+    // Create a hash and add the same element many times to cause wrapping
+    let mut hash = LtHash16_1024::new()?;
+    let data = b"wrap";
+
+    // Add 65536 times (2^16) should wrap back to original
+    for _ in 0..65536 {
+        hash.add(data)?;
+    }
+
+    // Adding 65536 times with 16-bit wrapping should be equivalent to adding 0 times
+    // (since 65536 mod 2^16 = 0)
+    let empty = LtHash16_1024::new()?;
+    assert_eq!(hash.checksum(), empty.checksum(), "65536 adds should wrap to zero");
+
+    Ok(())
+}
+
+/// Test that hash is deterministic across many operations
+#[test]
+fn test_determinism_stress() -> Result<(), LtHashError> {
+    let items: Vec<&[u8]> = vec![b"a", b"b", b"c", b"d", b"e"];
+
+    // Create hash with all items
+    let mut hash1 = LtHash16_1024::new()?;
+    for item in &items {
+        hash1.add(*item)?;
+    }
+
+    // Create same hash in different order
+    let mut hash2 = LtHash16_1024::new()?;
+    for item in items.iter().rev() {
+        hash2.add(*item)?;
+    }
+
+    assert_eq!(hash1.checksum(), hash2.checksum(), "Order should not matter");
+
+    // Create same hash using parallel
+    let hash3 = LtHash16_1024::from_parallel(&items)?;
+    assert_eq!(hash1.checksum(), hash3.checksum(), "Parallel should match sequential");
+
+    Ok(())
+}
+
+/// Test with all-zeros input
+#[test]
+fn test_all_zeros_input() -> Result<(), LtHashError> {
+    let zeros = vec![0u8; 10000];
+
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(&zeros)?;
+
+    // All-zeros input should produce non-zero hash
+    assert!(!hash.is_zero(), "All-zeros input should produce non-zero hash");
+
+    // Removing should return to zero
+    hash.remove(&zeros)?;
+    assert!(hash.is_zero());
+
+    Ok(())
+}
+
+/// Test with all-ones input (0xFF bytes)
+#[test]
+fn test_all_ones_input() -> Result<(), LtHashError> {
+    let ones = vec![0xFFu8; 10000];
+
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(&ones)?;
+
+    assert!(!hash.is_zero(), "All-ones input should produce non-zero hash");
+
+    hash.remove(&ones)?;
+    assert!(hash.is_zero());
+
+    Ok(())
+}
+
+/// Test with maximum length data that's reasonable
+#[test]
+fn test_large_single_element() -> Result<(), LtHashError> {
+    // 10MB element
+    let large_data: Vec<u8> = (0..10_000_000).map(|i| (i % 256) as u8).collect();
+
+    let mut hash = LtHash16_1024::new()?;
+    hash.add(&large_data)?;
+
+    assert!(!hash.is_zero());
+
+    // Verify streaming matches
+    let mut hash_stream = LtHash16_1024::new()?;
+    hash_stream.add_stream(std::io::Cursor::new(&large_data))?;
+
+    assert_eq!(hash.checksum(), hash_stream.checksum());
+
+    Ok(())
+}
+
+/// Test that same data with different keys produces different hashes
+#[test]
+fn test_key_affects_hash() -> Result<(), LtHashError> {
+    let data = b"test data for keyed hashing";
+
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.set_key(b"key1")?;
+    hash1.add(data)?;
+
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.set_key(b"key2")?;
+    hash2.add(data)?;
+
+    let mut hash3 = LtHash16_1024::new()?;
+    hash3.add(data)?;
+
+    // All three should be different
+    assert_ne!(hash1.checksum(), hash2.checksum());
+    assert_ne!(hash1.checksum(), hash3.checksum());
+    assert_ne!(hash2.checksum(), hash3.checksum());
+
+    Ok(())
+}
+
+/// Test associativity: (a + b) + c == a + (b + c)
+#[test]
+fn test_associativity() -> Result<(), LtHashError> {
+    let a = b"element_a";
+    let b = b"element_b";
+    let c = b"element_c";
+
+    // (a + b) + c
+    let mut hash1 = LtHash16_1024::new()?;
+    hash1.add(a)?.add(b)?;
+    let mut ab = hash1.clone();
+    ab.add(c)?;
+
+    // a + (b + c)
+    let mut hash2 = LtHash16_1024::new()?;
+    hash2.add(b)?.add(c)?;
+    let mut bc = LtHash16_1024::new()?;
+    bc.add(a)?;
+    bc.try_add(&hash2)?;
+
+    assert_eq!(ab.checksum(), bc.checksum(), "Associativity should hold");
+
+    Ok(())
+}
+
+/// Test that homomorphic property holds for subtraction: H(A-B) = H(A) - H(B)
+#[test]
+fn test_homomorphic_subtraction() -> Result<(), LtHashError> {
+    let items_a: Vec<&[u8]> = vec![b"1", b"2", b"3", b"4", b"5"];
+    let items_b: Vec<&[u8]> = vec![b"3", b"4"];
+
+    // H(A) computed directly
+    let mut hash_a = LtHash16_1024::new()?;
+    for item in &items_a {
+        hash_a.add(*item)?;
+    }
+
+    // H(B) computed directly
+    let mut hash_b = LtHash16_1024::new()?;
+    for item in &items_b {
+        hash_b.add(*item)?;
+    }
+
+    // H(A) - H(B) via homomorphic subtraction
+    let mut result_homomorphic = hash_a.clone();
+    result_homomorphic.try_sub(&hash_b)?;
+
+    // H(A-B) computed directly (items in A but not in B)
+    let mut result_direct = LtHash16_1024::new()?;
+    result_direct.add(b"1")?.add(b"2")?.add(b"5")?;
+
+    assert_eq!(
+        result_homomorphic.checksum(),
+        result_direct.checksum(),
+        "Homomorphic subtraction should equal direct computation"
+    );
+
+    Ok(())
+}
+
+/// Test edge case: checksum with maximum values (all 0xFF)
+#[test]
+fn test_max_checksum_values() -> Result<(), LtHashError> {
+    // Create a checksum with all maximum values
+    let max_checksum = vec![0xFFu8; LtHash16_1024::checksum_size_bytes()];
+
+    let hash = LtHash16_1024::with_checksum(&max_checksum)?;
+
+    // Adding an element should wrap
+    let mut hash2 = hash.clone();
+    hash2.add(b"test")?;
+
+    // The checksum should have changed
+    assert_ne!(hash.checksum(), hash2.checksum());
+
+    Ok(())
+}
+
+/// Test that remove_all with duplicates works correctly
+#[test]
+fn test_remove_all_with_duplicates() -> Result<(), LtHashError> {
+    let mut hash = LtHash16_1024::new()?;
+
+    // Add: a, a, b
+    hash.add(b"a")?.add(b"a")?.add(b"b")?;
+
+    // Remove: a, a (should leave just b)
+    hash.remove_all(&[b"a", b"a"])?;
+
+    let mut expected = LtHash16_1024::new()?;
+    expected.add(b"b")?;
+
+    assert_eq!(hash.checksum(), expected.checksum());
+
+    Ok(())
+}
+
+/// Test LtHash32 wrapping at u32 boundaries
+#[test]
+fn test_u32_wrapping() -> Result<(), LtHashError> {
+    use lthash::LtHash32_1024;
+
+    // This is a simplified test - we can't easily test 2^32 additions
+    // but we can verify the math works with the subtraction path
+    let mut hash = LtHash32_1024::new()?;
+    hash.add(b"test")?;
+
+    // Add and subtract should cancel out
+    hash.add(b"cancel")?;
+    hash.remove(b"cancel")?;
+
+    let mut expected = LtHash32_1024::new()?;
+    expected.add(b"test")?;
+
+    assert_eq!(hash.checksum(), expected.checksum());
+
+    Ok(())
+}
+
+/// Test LtHash20 padding bit handling
+#[test]
+fn test_lthash20_padding() -> Result<(), LtHashError> {
+    use lthash::LtHash20_1008;
+
+    let mut hash = LtHash20_1008::new()?;
+    hash.add(b"test data")?;
+
+    // Verify checksum is valid (no padding bits set)
+    let checksum = hash.checksum();
+
+    // Create new hash from checksum (validates padding)
+    let hash2 = LtHash20_1008::with_checksum(checksum)?;
+    assert_eq!(hash.checksum(), hash2.checksum());
+
+    // Operations should preserve valid padding
+    let mut hash3 = hash.clone();
+    hash3.add(b"more data")?;
+    let hash4 = LtHash20_1008::with_checksum(hash3.checksum())?;
+    assert_eq!(hash3.checksum(), hash4.checksum());
+
+    Ok(())
+}
+
+/// Test Blake3Xof streaming API edge cases
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_blake3_xof_streaming_states() {
+    // Test calling methods in wrong order
+    let mut xof = Blake3Xof::new();
+
+    // Update before init should fail
+    let result = xof.update(b"data");
+    assert!(result.is_err());
+
+    // Finish before init should fail
+    let mut output = [0u8; 64];
+    let result = xof.finish(&mut output);
+    assert!(result.is_err());
+
+    // Proper sequence
+    xof.init(64, &[], &[], &[]).unwrap();
+    xof.update(b"data").unwrap();
+    xof.finish(&mut output).unwrap();
+
+    // Update after finish should fail
+    let result = xof.update(b"more");
+    assert!(result.is_err());
+
+    // Double finish should fail
+    let result = xof.finish(&mut output);
+    assert!(result.is_err());
+}
+
+/// Test Blake3Xof output size mismatch
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_blake3_xof_output_size_mismatch() {
+    let mut xof = Blake3Xof::new();
+    xof.init(64, &[], &[], &[]).unwrap();
+    xof.update(b"data").unwrap();
+
+    // Wrong output size should fail
+    let mut wrong_size = [0u8; 32];
+    let result = xof.finish(&mut wrong_size);
+    assert!(result.is_err());
+}
+
+/// Test keyed streaming with Blake3Xof
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_blake3_xof_keyed_streaming() {
+    let key = [42u8; 32];
+    let mut xof = Blake3Xof::new();
+    xof.init(64, &key, &[], &[]).unwrap();
+    xof.update(b"hello ").unwrap();
+    xof.update(b"world").unwrap();
+    let mut streaming_output = [0u8; 64];
+    xof.finish(&mut streaming_output).unwrap();
+
+    // Compare with one-shot
+    let mut oneshot_output = [0u8; 64];
+    Blake3Xof::hash(&mut oneshot_output, b"hello world", &key, &[], &[]).unwrap();
+
+    assert_eq!(streaming_output, oneshot_output);
+}
