@@ -2,6 +2,8 @@
 
 A Rust implementation of [LtHash](https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/) (Lattice-based Homomorphic Hash). Uses BLAKE3 by default, with optional Blake2xb for [Folly C++ compatibility](https://github.com/facebook/folly/tree/main/folly/crypto). Inlcudes `lthash_dir` tool for homomorphic filesystem digests.
 
+⚠️ This is experimental and written by Claude. It has had almost no review. Do not use for real applications yet.
+
 ## What is LtHash?
 
 LtHash is a **homomorphic hash function**: `H(A ∪ B) = H(A) + H(B)`. This means you can add or remove elements from a hash without re-processing everything.
