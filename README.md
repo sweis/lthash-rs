@@ -27,7 +27,7 @@ lthash add "$OLD_HASH" new_file.txt
 
 ## lthash_dir: Fast Directory Hashing
 
-`lthash_dir` computes a single hash for an entire directory tree. It's ~2x faster than `b3sum` and ~12x faster than `sha256sum`.
+`lthash_dir` computes a single hash for an entire directory tree. Unlike regular hashes, it supports **incremental updates** - add or remove files without rehashing everything.
 
 ```bash
 # Hash a directory
@@ -45,19 +45,20 @@ lthash_dir -r --hidden /path
 Processing: 1000 files, 50 dirs, 5.2 GB @ 3500 MB/s | 75% | ETA: 2s
 ```
 
-### Performance Comparison (500 MB dataset)
+### Performance Comparison (1 GB dataset)
 
 | Tool | Time | Throughput |
 |------|------|------------|
-| sha256sum | 791 ms | 663 MB/s |
-| b3sum | 131 ms | 4,003 MB/s |
-| **lthash_dir** | **59 ms** | **10,955 MB/s** |
+| sha256sum | 1.4 s | 710 MB/s |
+| b3sum | 93 ms | 10,700 MB/s |
+| **lthash_dir** | **114 ms** | **9,200 MB/s** |
 
 ### Why Use lthash_dir?
 
 - **Incremental updates**: When files change, update the hash without re-reading everything
 - **Order-independent**: No need to sort file lists for reproducible results
 - **Parallel by default**: Uses all CPU cores automatically
+- **Competitive performance**: Within 20% of b3sum while supporting homomorphic operations
 
 ## Library Usage
 
