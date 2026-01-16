@@ -51,14 +51,14 @@ Processing: 1000 files, 50 dirs, 5.2 GB @ 3500 MB/s | 75% | ETA: 2s
 |------|------|------------|
 | sha256sum | 1.4 s | 710 MB/s |
 | b3sum | 93 ms | 10,700 MB/s |
-| **lthash_dir** | **114 ms** | **9,200 MB/s** |
+| **lthash_dir** | **95 ms** | **10,500 MB/s** |
 
 ### Why Use lthash_dir?
 
 - **Incremental updates**: When files change, update the hash without re-reading everything
 - **Order-independent**: No need to sort file lists for reproducible results
 - **Parallel by default**: Uses all CPU cores automatically
-- **Competitive performance**: Within 20% of b3sum while supporting homomorphic operations
+- **Comparable to b3sum**: Similar throughput while supporting homomorphic operations
 
 ## Library Usage
 
