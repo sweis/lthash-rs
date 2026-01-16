@@ -1,6 +1,6 @@
-# LtHash-rs
+# LtHash-rs: Lattice-Based Homomorphic Hash in Rust
 
-A Rust implementation of [LtHash](https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/) (Lattice-based Homomorphic Hash). Uses BLAKE3 by default, with optional Blake2xb for [Folly C++ compatibility](https://github.com/facebook/folly/tree/main/folly/crypto).
+A Rust implementation of [LtHash](https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/) (Lattice-based Homomorphic Hash). Uses BLAKE3 by default, with optional Blake2xb for [Folly C++ compatibility](https://github.com/facebook/folly/tree/main/folly/crypto). Inlcudes `lthash_dir` tool for homomorphic filesystem digests.
 
 ## What is LtHash?
 
