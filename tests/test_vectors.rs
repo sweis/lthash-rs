@@ -2,6 +2,7 @@
 ///
 /// These test vectors were generated from the C++ reference implementation
 /// and ensure that the Rust implementation produces identical results.
+#[cfg(feature = "folly-compat")]
 pub mod blake2xb {
     #[derive(Debug, Clone)]
     pub struct TestVector {
@@ -159,6 +160,8 @@ pub mod blake2xb {
     ];
 }
 
+/// Blake2xb-based LtHash test vectors (for Folly compatibility testing)
+#[cfg(feature = "folly-compat")]
 pub mod lthash {
     #[derive(Debug, Clone)]
     pub struct TestVector {

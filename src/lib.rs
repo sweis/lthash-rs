@@ -57,9 +57,10 @@
 //!
 //! ## Module Organization
 //!
-//! - [`blake2xb`]: Blake2xb Extendable Output Function implementation
 //! - [`LtHash`]: Core LtHash implementation with const generic parameters
 //! - [`LtHashError`]: Error types for the library
+//! - `blake2xb`: Blake2xb XOF (requires `folly-compat` feature)
+//! - `blake3_xof`: BLAKE3 XOF (default backend)
 //!
 //! ## References
 //!

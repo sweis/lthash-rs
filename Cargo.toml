@@ -2,7 +2,7 @@
 name = "lthash"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.79"  # Required for is_multiple_of()
+rust-version = "1.66"  # Required by blake3 1.5
 
 [dependencies]
 libsodium-sys = { version = "0.2", optional = true }

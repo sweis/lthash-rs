@@ -118,7 +118,6 @@ impl Progress {
 struct Stats {
     files_found: usize,
     files_hashed: usize,
-    files_skipped: usize,
     dirs_hashed: usize,
     total_bytes: u64,
 }
@@ -128,7 +127,6 @@ impl Stats {
         Stats {
             files_found: 0,
             files_hashed: 0,
-            files_skipped: 0,
             dirs_hashed: 0,
             total_bytes: 0,
         }
@@ -137,7 +135,6 @@ impl Stats {
     fn merge(&mut self, other: Stats) {
         self.files_found += other.files_found;
         self.files_hashed += other.files_hashed;
-        self.files_skipped += other.files_skipped;
         self.dirs_hashed += other.dirs_hashed;
         self.total_bytes += other.total_bytes;
     }
@@ -216,7 +213,6 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     eprintln!("  Recursive:      {}", args.recursive);
     eprintln!("  Files found:    {}", stats.files_found);
     eprintln!("  Files hashed:   {}", stats.files_hashed);
-    eprintln!("  Files skipped:  {}", stats.files_skipped);
     if args.recursive {
         eprintln!("  Dirs hashed:    {}", stats.dirs_hashed);
     }
@@ -329,7 +325,6 @@ fn hash_directory_flat(
         Stats {
             files_found,
             files_hashed: files_found,
-            files_skipped: 0,
             dirs_hashed: 0,
             total_bytes,
         },
@@ -473,6 +468,8 @@ fn collect_file_infos(
 /// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
 fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut file = File::open(&info.path)?;
+
+    #[cfg(unix)]
     let fd = file.as_raw_fd();
 
     #[cfg(unix)]
@@ -494,9 +491,9 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
     let mut output = vec![0u8; 2048];
     hasher.finalize_xof().fill(&mut output);
 
-    // Evict from page cache (NOREUSE is a no-op on Linux < 6.3)
     #[cfg(unix)]
     unsafe {
+        // Evict from page cache (NOREUSE is a no-op on Linux < 6.3)
         libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
     }
 
