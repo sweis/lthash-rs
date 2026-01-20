@@ -258,6 +258,7 @@ pub mod lthash {
 ///
 /// Note: The first 32 bytes (16 u16 values) of the internal state have been verified to match
 /// Solana's implementation exactly. This ensures homomorphic operations are compatible.
+#[allow(dead_code)]
 pub mod solana_interop {
     #[derive(Debug, Clone)]
     pub struct SolanaTestVector {
@@ -294,6 +295,7 @@ pub mod solana_interop {
 ///
 /// These vectors are used to detect regressions when using the BLAKE3 backend.
 /// Note: BLAKE3 produces different output than Blake2xb/Folly.
+#[allow(dead_code)]
 pub mod blake3_lthash {
     #[derive(Debug, Clone)]
     pub struct TestVector {

@@ -9,11 +9,11 @@ use lthash::{LtHash16_1024, LtHash20_1008, LtHash32_1024};
 
 #[cfg(feature = "folly-compat")]
 use lthash::Blake2xb;
-#[cfg(feature = "blake3-backend")]
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
 use lthash::Blake3Xof;
 
 /// Benchmark BLAKE3 XOF at various output sizes (default)
-#[cfg(feature = "blake3-backend")]
+#[cfg(all(feature = "blake3-backend", not(feature = "folly-compat")))]
 fn bench_blake3(c: &mut Criterion) {
     let mut group = c.benchmark_group("blake3");
 

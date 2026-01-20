@@ -185,8 +185,6 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         }
 
         let elements_per_u64 = Self::elements_per_u64();
-        // Using modulo instead of is_multiple_of() for clarity and compatibility
-        #[allow(clippy::manual_is_multiple_of)]
         if N % elements_per_u64 != 0 {
             return Err(LtHashError::ElementCountNotDivisible {
                 element_count: N,

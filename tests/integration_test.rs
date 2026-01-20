@@ -728,7 +728,7 @@ fn test_iter_methods() -> Result<(), LtHashError> {
     assert_eq!(hash1.checksum(), hash2.checksum());
 
     // Test remove_iter
-    let to_remove = vec![b"one".as_slice(), b"two".as_slice()];
+    let to_remove = [b"one".as_slice(), b"two".as_slice()];
     hash1.remove_iter(to_remove.iter().copied())?;
 
     let mut hash3 = LtHash16_1024::new()?;
@@ -1052,16 +1052,16 @@ fn test_small_inputs() -> Result<(), LtHashError> {
 
     // Single byte
     hash.reset();
-    hash.add(&[0u8])?;
+    hash.add([0u8])?;
     assert_ne!(hash.checksum(), empty_hash.as_slice());
 
     // Single byte different value
     hash.reset();
-    hash.add(&[1u8])?;
+    hash.add([1u8])?;
     let one_hash = hash.checksum().to_vec();
 
     hash.reset();
-    hash.add(&[0u8])?;
+    hash.add([0u8])?;
     assert_ne!(hash.checksum(), one_hash.as_slice());
 
     Ok(())
