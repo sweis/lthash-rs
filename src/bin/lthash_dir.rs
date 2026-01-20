@@ -1,18 +1,40 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
 use rayon::prelude::*;
+use std::ffi::CString;
 use std::fs::{self, File};
 use std::io::{Read, Write};
-#[cfg(target_os = "linux")]
-use std::os::unix::io::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+/// File info with just the filename for use with openat().
+struct FileEntry {
+    name: CString,
+    size: u64,
+}
+
+/// Directory context for openat() optimization.
+/// Holds a directory fd and list of files to hash.
+struct DirContext {
+    dir_fd: RawFd,
+    files: Vec<FileEntry>,
+}
+
+impl Drop for DirContext {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.dir_fd);
+        }
+    }
+}
+
+// Legacy struct for fallback path
 struct FileInfo {
     path: PathBuf,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     size: u64,
 }
 
@@ -349,13 +371,23 @@ fn hash_dir_recursive_inner(
     include_hidden: bool,
     progress: &Arc<Progress>,
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
-    let mut file_infos = Vec::new();
+    let mut file_entries = Vec::new();
     let mut subdirs = Vec::new();
     let mut total_bytes = 0u64;
+
+    // Open directory for openat() - avoids path resolution per file
+    let dir_cstr = CString::new(dir.as_os_str().as_bytes())
+        .map_err(|_| "invalid directory path")?;
+    let dir_fd = unsafe { libc::open(dir_cstr.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY) };
+    if dir_fd < 0 {
+        eprintln!("warning: cannot open dir '{}': {}", dir.display(), std::io::Error::last_os_error());
+        return Ok((LtHash16_1024::new()?, Stats::new()));
+    }
 
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
+            unsafe { libc::close(dir_fd); }
             eprintln!("warning: cannot read '{}': {}", dir.display(), e);
             return Ok((LtHash16_1024::new()?, Stats::new()));
         }
@@ -371,8 +403,9 @@ fn hash_dir_recursive_inner(
         };
 
         let path = entry.path();
+        let file_name = entry.file_name();
 
-        if !include_hidden && is_hidden(&path) {
+        if !include_hidden && file_name.to_string_lossy().starts_with('.') {
             continue;
         }
 
@@ -390,7 +423,10 @@ fn hash_dir_recursive_inner(
         if file_type.is_file() {
             let size = metadata.len();
             total_bytes += size;
-            file_infos.push(FileInfo { path, size });
+            // Store just filename for openat()
+            if let Ok(name) = CString::new(file_name.as_bytes()) {
+                file_entries.push(FileEntry { name, size });
+            }
         } else if file_type.is_dir() {
             subdirs.push(path);
         }
@@ -398,18 +434,24 @@ fn hash_dir_recursive_inner(
     }
 
     // Sort for deterministic ordering
-    file_infos.sort_by(|a, b| a.path.cmp(&b.path));
+    file_entries.sort_by(|a, b| a.name.cmp(&b.name));
     subdirs.sort();
 
     let mut stats = Stats::new();
-    stats.files_found = file_infos.len();
+    stats.files_found = file_entries.len();
     stats.total_bytes = total_bytes;
 
-    let mut dir_hash = if !file_infos.is_empty() {
-        stats.files_hashed = file_infos.len();
-        let hash = hash_files_parallel(file_infos)?;
+    // Create DirContext for openat-based hashing
+    let ctx = DirContext {
+        dir_fd,
+        files: file_entries,
+    };
+
+    let mut dir_hash = if !ctx.files.is_empty() {
+        stats.files_hashed = ctx.files.len();
+        let checksum = hash_dir_files_openat(&ctx)?;
         progress.add_files(stats.files_hashed, total_bytes);
-        hash
+        LtHash16_1024::with_checksum(&checksum)?
     } else {
         LtHash16_1024::new()?
     };
@@ -466,16 +508,41 @@ fn collect_file_infos(
     Ok((file_infos, total_bytes))
 }
 
-/// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
-fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut file = File::open(&info.path)?;
+/// Minimum file size to apply I/O hints. For smaller files, syscall overhead exceeds benefit.
+const IO_HINT_THRESHOLD: u64 = 262144; // 256KB
 
-    #[cfg(target_os = "linux")]
-    let fd = file.as_raw_fd();
+/// Hash a file using openat() to avoid path resolution overhead.
+/// Takes a directory fd and filename instead of full path.
+fn hash_file_openat(
+    dir_fd: RawFd,
+    entry: &FileEntry,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    // Open file relative to directory fd
+    let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
+    if fd < 0 {
+        return Err(format!(
+            "openat failed: {}",
+            std::io::Error::last_os_error()
+        )
+        .into());
+    }
 
+    // Wrap in File for automatic close and safe reading
+    let mut file = unsafe { File::from_raw_fd(fd) };
+
+    // Apply I/O hints for larger files
     #[cfg(target_os = "linux")]
-    unsafe {
-        libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+    if entry.size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    if entry.size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::fcntl(fd, libc::F_RDAHEAD, 1);
+        }
     }
 
     let mut hasher = blake3::Hasher::new();
@@ -493,9 +560,87 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
     hasher.finalize_xof().fill(&mut output);
 
     #[cfg(target_os = "linux")]
-    unsafe {
-        // Evict from page cache (NOREUSE is a no-op on Linux < 6.3)
-        libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
+    if entry.size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::posix_fadvise(fd, 0, entry.size as i64, libc::POSIX_FADV_DONTNEED);
+        }
+    }
+
+    Ok(output)
+}
+
+/// Hash all files in a DirContext using openat().
+fn hash_dir_files_openat(
+    ctx: &DirContext,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    if ctx.files.is_empty() {
+        return Ok(vec![0u8; 2048]);
+    }
+
+    // Hash files in parallel using openat
+    let combined: Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> = ctx
+        .files
+        .par_iter()
+        .map(|entry| hash_file_openat(ctx.dir_fd, entry))
+        .try_reduce(
+            || vec![0u8; 2048],
+            |mut a, b| {
+                // LtHash16: element-wise wrapping u16 addition
+                for i in 0..1024 {
+                    let offset = i * 2;
+                    let av = u16::from_le_bytes([a[offset], a[offset + 1]]);
+                    let bv = u16::from_le_bytes([b[offset], b[offset + 1]]);
+                    let sum = av.wrapping_add(bv);
+                    a[offset..offset + 2].copy_from_slice(&sum.to_le_bytes());
+                }
+                Ok(a)
+            },
+        );
+
+    combined
+}
+
+/// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
+fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut file = File::open(&info.path)?;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let fd = file.as_raw_fd();
+
+    // Only apply I/O hints for larger files where benefit exceeds syscall overhead
+    #[cfg(target_os = "linux")]
+    if info.size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    if info.size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::fcntl(fd, libc::F_RDAHEAD, 1);
+        }
+    }
+
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 65536];
+
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+
+    let mut output = vec![0u8; 2048];
+    hasher.finalize_xof().fill(&mut output);
+
+    #[cfg(target_os = "linux")]
+    if info.size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
+        }
     }
 
     Ok(output)

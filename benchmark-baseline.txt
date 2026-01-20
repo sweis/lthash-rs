@@ -1,0 +1,414 @@
+   Compiling crossbeam-utils v0.8.21
+   Compiling cfg-if v1.0.4
+   Compiling rayon-core v1.13.0
+   Compiling serde_core v1.0.228
+   Compiling libc v0.2.175
+   Compiling either v1.15.0
+   Compiling zerocopy v0.8.33
+   Compiling zmij v1.0.16
+   Compiling serde v1.0.228
+   Compiling autocfg v1.5.0
+   Compiling arrayvec v0.7.6
+   Compiling blake3 v1.8.3
+   Compiling arrayref v0.3.9
+   Compiling syn v2.0.106
+   Compiling serde_json v1.0.149
+   Compiling constant_time_eq v0.4.2
+   Compiling anstyle v1.0.13
+   Compiling base64 v0.22.1
+   Compiling clap_lex v0.7.7
+   Compiling num-traits v0.2.19
+   Compiling plotters-backend v0.3.7
+   Compiling memchr v2.7.6
+   Compiling ciborium-io v0.2.2
+   Compiling regex-syntax v0.8.8
+   Compiling itoa v1.0.17
+   Compiling plotters-svg v0.3.7
+   Compiling clap_builder v4.5.54
+   Compiling itertools v0.10.5
+   Compiling same-file v1.0.6
+   Compiling crossbeam-epoch v0.9.18
+   Compiling crossbeam-deque v0.8.6
+   Compiling regex-automata v0.4.13
+   Compiling cast v0.3.0
+   Compiling walkdir v2.5.0
+   Compiling once_cell v1.21.3
+   Compiling criterion-plot v0.5.0
+   Compiling anes v0.1.6
+   Compiling plotters v0.3.7
+   Compiling oorandom v11.1.5
+   Compiling clap v4.5.54
+   Compiling is-terminal v0.4.17
+   Compiling regex v1.12.2
+   Compiling rayon v1.11.0
+   Compiling zerocopy-derive v0.8.33
+   Compiling zeroize_derive v1.4.3
+   Compiling serde_derive v1.0.228
+   Compiling thiserror-impl v1.0.69
+   Compiling zeroize v1.8.2
+   Compiling thiserror v1.0.69
+   Compiling lthash v0.1.0 (/Users/saw/repos/lthash-rs)
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling tinytemplate v1.2.1
+   Compiling ciborium v0.2.2
+   Compiling criterion v0.5.1
+    Finished `bench` profile [optimized] target(s) in 6.92s
+     Running unittests src/lib.rs (target/release/deps/lthash-b73c5d6b5e4f0747)
+
+running 6 tests
+test blake3_xof::tests::test_basic_hash ... ignored
+test blake3_xof::tests::test_deterministic ... ignored
+test blake3_xof::tests::test_keyed_hash_32_bytes ... ignored
+test blake3_xof::tests::test_keyed_hash_variable_length ... ignored
+test blake3_xof::tests::test_streaming ... ignored
+test blake3_xof::tests::test_xof_different_lengths ... ignored
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/lthash_cli.rs (target/release/deps/lthash-abd0a0e9b3084511)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/lthash_dir.rs (target/release/deps/lthash_dir-b2f8ab11578eec88)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/lthash_bench.rs (target/release/deps/lthash_bench-04bab148ac21cbb2)
+Gnuplot not found, using plotters backend
+Benchmarking blake3/hash_64B_to_64B
+Benchmarking blake3/hash_64B_to_64B: Warming up for 3.0000 s
+Benchmarking blake3/hash_64B_to_64B: Collecting 100 samples in estimated 5.0002 s (91M iterations)
+Benchmarking blake3/hash_64B_to_64B: Analyzing
+blake3/hash_64B_to_64B  time:   [54.974 ns 55.119 ns 55.279 ns]
+                        thrpt:  [1.0783 GiB/s 1.0814 GiB/s 1.0842 GiB/s]
+Found 5 outliers among 100 measurements (5.00%)
+  1 (1.00%) low mild
+  3 (3.00%) high mild
+  1 (1.00%) high severe
+Benchmarking blake3/hash_64B_to_2048B
+Benchmarking blake3/hash_64B_to_2048B: Warming up for 3.0000 s
+Benchmarking blake3/hash_64B_to_2048B: Collecting 100 samples in estimated 5.0015 s (3.7M iterations)
+Benchmarking blake3/hash_64B_to_2048B: Analyzing
+blake3/hash_64B_to_2048B
+                        time:   [1.3479 µs 1.3511 µs 1.3546 µs]
+                        thrpt:  [45.057 MiB/s 45.173 MiB/s 45.281 MiB/s]
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  1 (1.00%) high severe
+Benchmarking blake3/hash_256B_to_64B
+Benchmarking blake3/hash_256B_to_64B: Warming up for 3.0000 s
+Benchmarking blake3/hash_256B_to_64B: Collecting 100 samples in estimated 5.0004 s (27M iterations)
+Benchmarking blake3/hash_256B_to_64B: Analyzing
+blake3/hash_256B_to_64B time:   [182.91 ns 183.22 ns 183.54 ns]
+                        thrpt:  [1.2990 GiB/s 1.3013 GiB/s 1.3035 GiB/s]
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) low mild
+Benchmarking blake3/hash_256B_to_2048B
+Benchmarking blake3/hash_256B_to_2048B: Warming up for 3.0000 s
+Benchmarking blake3/hash_256B_to_2048B: Collecting 100 samples in estimated 5.0070 s (3.4M iterations)
+Benchmarking blake3/hash_256B_to_2048B: Analyzing
+blake3/hash_256B_to_2048B
+                        time:   [1.4894 µs 1.4922 µs 1.4953 µs]
+                        thrpt:  [163.27 MiB/s 163.61 MiB/s 163.92 MiB/s]
+Found 6 outliers among 100 measurements (6.00%)
+  1 (1.00%) low mild
+  5 (5.00%) high severe
+Benchmarking blake3/hash_1024B_to_64B
+Benchmarking blake3/hash_1024B_to_64B: Warming up for 3.0000 s
+Benchmarking blake3/hash_1024B_to_64B: Collecting 100 samples in estimated 5.0014 s (6.9M iterations)
+Benchmarking blake3/hash_1024B_to_64B: Analyzing
+blake3/hash_1024B_to_64B
+                        time:   [717.58 ns 718.82 ns 720.07 ns]
+                        thrpt:  [1.3244 GiB/s 1.3267 GiB/s 1.3290 GiB/s]
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+Benchmarking blake3/hash_1024B_to_2048B
+Benchmarking blake3/hash_1024B_to_2048B: Warming up for 3.0000 s
+Benchmarking blake3/hash_1024B_to_2048B: Collecting 100 samples in estimated 5.0004 s (2.4M iterations)
+Benchmarking blake3/hash_1024B_to_2048B: Analyzing
+blake3/hash_1024B_to_2048B
+                        time:   [2.0364 µs 2.0399 µs 2.0435 µs]
+                        thrpt:  [477.88 MiB/s 478.73 MiB/s 479.54 MiB/s]
+Found 8 outliers among 100 measurements (8.00%)
+  3 (3.00%) low severe
+  2 (2.00%) low mild
+  2 (2.00%) high mild
+  1 (1.00%) high severe
+Benchmarking blake3/hash_4096B_to_64B
+Benchmarking blake3/hash_4096B_to_64B: Warming up for 3.0000 s
+Benchmarking blake3/hash_4096B_to_64B: Collecting 100 samples in estimated 5.0041 s (3.1M iterations)
+Benchmarking blake3/hash_4096B_to_64B: Analyzing
+blake3/hash_4096B_to_64B
+                        time:   [1.6149 µs 1.6187 µs 1.6237 µs]
+                        thrpt:  [2.3493 GiB/s 2.3567 GiB/s 2.3622 GiB/s]
+Found 10 outliers among 100 measurements (10.00%)
+  2 (2.00%) high mild
+  8 (8.00%) high severe
+Benchmarking blake3/hash_4096B_to_2048B
+Benchmarking blake3/hash_4096B_to_2048B: Warming up for 3.0000 s
+Benchmarking blake3/hash_4096B_to_2048B: Collecting 100 samples in estimated 5.0080 s (1.7M iterations)
+Benchmarking blake3/hash_4096B_to_2048B: Analyzing
+blake3/hash_4096B_to_2048B
+                        time:   [2.8925 µs 2.8958 µs 2.8993 µs]
+                        thrpt:  [1.3157 GiB/s 1.3173 GiB/s 1.3188 GiB/s]
+Found 9 outliers among 100 measurements (9.00%)
+  2 (2.00%) low mild
+  4 (4.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking lthash_add/16_1024_add_32B
+Benchmarking lthash_add/16_1024_add_32B: Warming up for 3.0000 s
+Benchmarking lthash_add/16_1024_add_32B: Collecting 100 samples in estimated 5.0042 s (3.5M iterations)
+Benchmarking lthash_add/16_1024_add_32B: Analyzing
+lthash_add/16_1024_add_32B
+                        time:   [1.4332 µs 1.4362 µs 1.4400 µs]
+                        thrpt:  [21.193 MiB/s 21.249 MiB/s 21.293 MiB/s]
+Found 2 outliers among 100 measurements (2.00%)
+  1 (1.00%) low mild
+  1 (1.00%) high severe
+Benchmarking lthash_add/20_1008_add_32B
+Benchmarking lthash_add/20_1008_add_32B: Warming up for 3.0000 s
+Benchmarking lthash_add/20_1008_add_32B: Collecting 100 samples in estimated 5.0037 s (2.7M iterations)
+Benchmarking lthash_add/20_1008_add_32B: Analyzing
+lthash_add/20_1008_add_32B
+                        time:   [1.8776 µs 1.8805 µs 1.8835 µs]
+                        thrpt:  [16.203 MiB/s 16.228 MiB/s 16.254 MiB/s]
+Found 5 outliers among 100 measurements (5.00%)
+  3 (3.00%) low mild
+  2 (2.00%) high mild
+Benchmarking lthash_add/32_1024_add_32B
+Benchmarking lthash_add/32_1024_add_32B: Warming up for 3.0000 s
+Benchmarking lthash_add/32_1024_add_32B: Collecting 100 samples in estimated 5.0138 s (1.8M iterations)
+Benchmarking lthash_add/32_1024_add_32B: Analyzing
+lthash_add/32_1024_add_32B
+                        time:   [2.8332 µs 2.8389 µs 2.8449 µs]
+                        thrpt:  [10.727 MiB/s 10.750 MiB/s 10.771 MiB/s]
+Found 3 outliers among 100 measurements (3.00%)
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+Benchmarking lthash_add/16_1024_add_128B
+Benchmarking lthash_add/16_1024_add_128B: Warming up for 3.0000 s
+Benchmarking lthash_add/16_1024_add_128B: Collecting 100 samples in estimated 5.0037 s (3.4M iterations)
+Benchmarking lthash_add/16_1024_add_128B: Analyzing
+lthash_add/16_1024_add_128B
+                        time:   [1.4832 µs 1.4852 µs 1.4873 µs]
+                        thrpt:  [82.077 MiB/s 82.191 MiB/s 82.304 MiB/s]
+Found 3 outliers among 100 measurements (3.00%)
+  3 (3.00%) high mild
+Benchmarking lthash_add/20_1008_add_128B
+Benchmarking lthash_add/20_1008_add_128B: Warming up for 3.0000 s
+Benchmarking lthash_add/20_1008_add_128B: Collecting 100 samples in estimated 5.0009 s (2.6M iterations)
+Benchmarking lthash_add/20_1008_add_128B: Analyzing
+lthash_add/20_1008_add_128B
+                        time:   [1.9302 µs 1.9335 µs 1.9369 µs]
+                        thrpt:  [63.024 MiB/s 63.135 MiB/s 63.241 MiB/s]
+Found 7 outliers among 100 measurements (7.00%)
+  3 (3.00%) low mild
+  4 (4.00%) high mild
+Benchmarking lthash_add/32_1024_add_128B
+Benchmarking lthash_add/32_1024_add_128B: Warming up for 3.0000 s
+Benchmarking lthash_add/32_1024_add_128B: Collecting 100 samples in estimated 5.0082 s (1.7M iterations)
+Benchmarking lthash_add/32_1024_add_128B: Analyzing
+lthash_add/32_1024_add_128B
+                        time:   [2.8930 µs 2.8983 µs 2.9040 µs]
+                        thrpt:  [42.035 MiB/s 42.118 MiB/s 42.195 MiB/s]
+Found 3 outliers among 100 measurements (3.00%)
+  1 (1.00%) low mild
+  2 (2.00%) high mild
+Benchmarking lthash_add/16_1024_add_512B
+Benchmarking lthash_add/16_1024_add_512B: Warming up for 3.0000 s
+Benchmarking lthash_add/16_1024_add_512B: Collecting 100 samples in estimated 5.0029 s (2.8M iterations)
+Benchmarking lthash_add/16_1024_add_512B: Analyzing
+lthash_add/16_1024_add_512B
+                        time:   [1.7723 µs 1.7772 µs 1.7823 µs]
+                        thrpt:  [273.96 MiB/s 274.74 MiB/s 275.51 MiB/s]
+Found 5 outliers among 100 measurements (5.00%)
+  1 (1.00%) low severe
+  1 (1.00%) low mild
+  3 (3.00%) high mild
+Benchmarking lthash_add/20_1008_add_512B
+Benchmarking lthash_add/20_1008_add_512B: Warming up for 3.0000 s
+Benchmarking lthash_add/20_1008_add_512B: Collecting 100 samples in estimated 5.0079 s (2.3M iterations)
+Benchmarking lthash_add/20_1008_add_512B: Analyzing
+lthash_add/20_1008_add_512B
+                        time:   [2.2156 µs 2.2196 µs 2.2241 µs]
+                        thrpt:  [219.54 MiB/s 219.98 MiB/s 220.38 MiB/s]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+  2 (2.00%) high severe
+Benchmarking lthash_add/32_1024_add_512B
+Benchmarking lthash_add/32_1024_add_512B: Warming up for 3.0000 s
+Benchmarking lthash_add/32_1024_add_512B: Collecting 100 samples in estimated 5.0091 s (1.6M iterations)
+Benchmarking lthash_add/32_1024_add_512B: Analyzing
+lthash_add/32_1024_add_512B
+                        time:   [3.1842 µs 3.1892 µs 3.1943 µs]
+                        thrpt:  [152.86 MiB/s 153.11 MiB/s 153.34 MiB/s]
+Found 5 outliers among 100 measurements (5.00%)
+  2 (2.00%) low severe
+  2 (2.00%) low mild
+  1 (1.00%) high mild
+Benchmarking lthash_add/16_1024_add_1024B
+Benchmarking lthash_add/16_1024_add_1024B: Warming up for 3.0000 s
+Benchmarking lthash_add/16_1024_add_1024B: Collecting 100 samples in estimated 5.0068 s (2.3M iterations)
+Benchmarking lthash_add/16_1024_add_1024B: Analyzing
+lthash_add/16_1024_add_1024B
+                        time:   [2.1454 µs 2.1494 µs 2.1535 µs]
+                        thrpt:  [453.48 MiB/s 454.34 MiB/s 455.19 MiB/s]
+Found 4 outliers among 100 measurements (4.00%)
+  2 (2.00%) low severe
+  1 (1.00%) low mild
+  1 (1.00%) high mild
+Benchmarking lthash_add/20_1008_add_1024B
+Benchmarking lthash_add/20_1008_add_1024B: Warming up for 3.0000 s
+Benchmarking lthash_add/20_1008_add_1024B: Collecting 100 samples in estimated 5.0020 s (1.9M iterations)
+Benchmarking lthash_add/20_1008_add_1024B: Analyzing
+lthash_add/20_1008_add_1024B
+                        time:   [2.5914 µs 2.5951 µs 2.5990 µs]
+                        thrpt:  [375.75 MiB/s 376.31 MiB/s 376.85 MiB/s]
+Found 2 outliers among 100 measurements (2.00%)
+  1 (1.00%) low mild
+  1 (1.00%) high mild
+Benchmarking lthash_add/32_1024_add_1024B
+Benchmarking lthash_add/32_1024_add_1024B: Warming up for 3.0000 s
+Benchmarking lthash_add/32_1024_add_1024B: Collecting 100 samples in estimated 5.0136 s (1.4M iterations)
+Benchmarking lthash_add/32_1024_add_1024B: Analyzing
+lthash_add/32_1024_add_1024B
+                        time:   [3.5732 µs 3.5819 µs 3.5919 µs]
+                        thrpt:  [271.88 MiB/s 272.64 MiB/s 273.30 MiB/s]
+Found 8 outliers among 100 measurements (8.00%)
+  2 (2.00%) low mild
+  3 (3.00%) high mild
+  3 (3.00%) high severe
+
+Benchmarking lthash_combine/16_1024_try_add
+Benchmarking lthash_combine/16_1024_try_add: Warming up for 3.0000 s
+Benchmarking lthash_combine/16_1024_try_add: Collecting 100 samples in estimated 5.0002 s (89M iterations)
+Benchmarking lthash_combine/16_1024_try_add: Analyzing
+lthash_combine/16_1024_try_add
+                        time:   [56.089 ns 56.164 ns 56.235 ns]
+Found 3 outliers among 100 measurements (3.00%)
+  1 (1.00%) low mild
+  2 (2.00%) high mild
+Benchmarking lthash_combine/16_1024_try_sub
+Benchmarking lthash_combine/16_1024_try_sub: Warming up for 3.0000 s
+Benchmarking lthash_combine/16_1024_try_sub: Collecting 100 samples in estimated 5.0000 s (89M iterations)
+Benchmarking lthash_combine/16_1024_try_sub: Analyzing
+lthash_combine/16_1024_try_sub
+                        time:   [56.431 ns 56.496 ns 56.563 ns]
+Found 9 outliers among 100 measurements (9.00%)
+  1 (1.00%) low severe
+  4 (4.00%) low mild
+  3 (3.00%) high mild
+  1 (1.00%) high severe
+Benchmarking lthash_combine/32_1024_try_add
+Benchmarking lthash_combine/32_1024_try_add: Warming up for 3.0000 s
+Benchmarking lthash_combine/32_1024_try_add: Collecting 100 samples in estimated 5.0002 s (76M iterations)
+Benchmarking lthash_combine/32_1024_try_add: Analyzing
+lthash_combine/32_1024_try_add
+                        time:   [65.145 ns 65.194 ns 65.246 ns]
+Found 5 outliers among 100 measurements (5.00%)
+  1 (1.00%) low mild
+  2 (2.00%) high mild
+  2 (2.00%) high severe
+
+Benchmarking checksum_compare/16_1024_checksum_eq
+Benchmarking checksum_compare/16_1024_checksum_eq: Warming up for 3.0000 s
+Benchmarking checksum_compare/16_1024_checksum_eq: Collecting 100 samples in estimated 5.0000 s (220M iterations)
+Benchmarking checksum_compare/16_1024_checksum_eq: Analyzing
+checksum_compare/16_1024_checksum_eq
+                        time:   [22.593 ns 22.621 ns 22.652 ns]
+Found 6 outliers among 100 measurements (6.00%)
+  3 (3.00%) low mild
+  3 (3.00%) high mild
+Benchmarking checksum_compare/16_1024_eq
+Benchmarking checksum_compare/16_1024_eq: Warming up for 3.0000 s
+Benchmarking checksum_compare/16_1024_eq: Collecting 100 samples in estimated 5.0000 s (207M iterations)
+Benchmarking checksum_compare/16_1024_eq: Analyzing
+checksum_compare/16_1024_eq
+                        time:   [24.023 ns 24.069 ns 24.118 ns]
+Found 6 outliers among 100 measurements (6.00%)
+  6 (6.00%) high mild
+
+Benchmarking creation/16_1024_new
+Benchmarking creation/16_1024_new: Warming up for 3.0000 s
+Benchmarking creation/16_1024_new: Collecting 100 samples in estimated 5.0010 s (2.5M iterations)
+Benchmarking creation/16_1024_new: Analyzing
+creation/16_1024_new    time:   [1.9885 µs 1.9914 µs 1.9945 µs]
+Found 9 outliers among 100 measurements (9.00%)
+  4 (4.00%) high mild
+  5 (5.00%) high severe
+Benchmarking creation/20_1008_new
+Benchmarking creation/20_1008_new: Warming up for 3.0000 s
+Benchmarking creation/20_1008_new: Collecting 100 samples in estimated 5.0085 s (1.9M iterations)
+Benchmarking creation/20_1008_new: Analyzing
+creation/20_1008_new    time:   [2.5790 µs 2.5849 µs 2.5918 µs]
+Found 15 outliers among 100 measurements (15.00%)
+  1 (1.00%) low mild
+  8 (8.00%) high mild
+  6 (6.00%) high severe
+Benchmarking creation/32_1024_new
+Benchmarking creation/32_1024_new: Warming up for 3.0000 s
+Benchmarking creation/32_1024_new: Collecting 100 samples in estimated 5.0051 s (1.3M iterations)
+Benchmarking creation/32_1024_new: Analyzing
+creation/32_1024_new    time:   [3.8583 µs 3.8648 µs 3.8722 µs]
+Found 11 outliers among 100 measurements (11.00%)
+  9 (9.00%) high mild
+  2 (2.00%) high severe
+Benchmarking creation/16_1024_with_checksum
+Benchmarking creation/16_1024_with_checksum: Warming up for 3.0000 s
+Benchmarking creation/16_1024_with_checksum: Collecting 100 samples in estimated 5.0016 s (2.5M iterations)
+Benchmarking creation/16_1024_with_checksum: Analyzing
+creation/16_1024_with_checksum
+                        time:   [1.9765 µs 1.9819 µs 1.9886 µs]
+Found 13 outliers among 100 measurements (13.00%)
+  6 (6.00%) high mild
+  7 (7.00%) high severe
+
+Benchmarking parallel/100x1024B_sequential
+Benchmarking parallel/100x1024B_sequential: Warming up for 3.0000 s
+Benchmarking parallel/100x1024B_sequential: Collecting 100 samples in estimated 5.5063 s (25k iterations)
+Benchmarking parallel/100x1024B_sequential: Analyzing
+parallel/100x1024B_sequential
+                        time:   [217.63 µs 217.93 µs 218.22 µs]
+                        thrpt:  [447.51 MiB/s 448.11 MiB/s 448.73 MiB/s]
+Found 5 outliers among 100 measurements (5.00%)
+  1 (1.00%) low severe
+  3 (3.00%) low mild
+  1 (1.00%) high mild
+Benchmarking parallel/100x1024B_parallel
+Benchmarking parallel/100x1024B_parallel: Warming up for 3.0000 s
+Benchmarking parallel/100x1024B_parallel: Collecting 100 samples in estimated 5.1615 s (66k iterations)
+Benchmarking parallel/100x1024B_parallel: Analyzing
+parallel/100x1024B_parallel
+                        time:   [78.042 µs 78.525 µs 78.991 µs]
+                        thrpt:  [1.2073 GiB/s 1.2145 GiB/s 1.2220 GiB/s]
+
+Benchmarking parallel_streaming/16x65536B_sequential_stream
+Benchmarking parallel_streaming/16x65536B_sequential_stream: Warming up for 3.0000 s
+Benchmarking parallel_streaming/16x65536B_sequential_stream: Collecting 100 samples in estimated 7.2877 s (15k iterations)
+Benchmarking parallel_streaming/16x65536B_sequential_stream: Analyzing
+parallel_streaming/16x65536B_sequential_stream
+                        time:   [472.41 µs 473.53 µs 474.93 µs]
+                        thrpt:  [2.0562 GiB/s 2.0623 GiB/s 2.0672 GiB/s]
+Found 2 outliers among 100 measurements (2.00%)
+  1 (1.00%) low severe
+  1 (1.00%) high mild
+Benchmarking parallel_streaming/16x65536B_parallel_stream
+Benchmarking parallel_streaming/16x65536B_parallel_stream: Warming up for 3.0000 s
+Benchmarking parallel_streaming/16x65536B_parallel_stream: Collecting 100 samples in estimated 5.3805 s (30k iterations)
+Benchmarking parallel_streaming/16x65536B_parallel_stream: Analyzing
+parallel_streaming/16x65536B_parallel_stream
+                        time:   [126.79 µs 127.61 µs 128.53 µs]
+                        thrpt:  [7.5980 GiB/s 7.6527 GiB/s 7.7023 GiB/s]
+Found 10 outliers among 100 measurements (10.00%)
+  5 (5.00%) high mild
+  5 (5.00%) high severe
+
