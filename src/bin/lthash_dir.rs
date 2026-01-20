@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use lthash::LtHash16_1024;
 use rayon::prelude::*;
+use std::cell::RefCell;
 use std::ffi::CString;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -10,6 +11,60 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Thresholds for adaptive parallelism.
+/// Based on benchmark data showing parallel overhead exceeds benefit for small workloads.
+const PARALLEL_FILE_THRESHOLD: usize = 8; // Minimum files to benefit from parallelism
+const PARALLEL_BYTE_THRESHOLD: u64 = 1024 * 1024; // Minimum total bytes (1 MB)
+
+/// Small file threshold for mmap optimization.
+/// Files smaller than this are read via mmap to reduce syscall overhead.
+const MMAP_THRESHOLD: u64 = 65536; // 64KB
+
+// Thread-local buffers for file hashing to avoid repeated allocations.
+thread_local! {
+    static READ_BUFFER: RefCell<Vec<u8>> = RefCell::new(vec![0u8; 65536]);
+    static OUTPUT_BUFFER: RefCell<Vec<u8>> = RefCell::new(vec![0u8; 2048]);
+}
+
+/// Fast SIMD-friendly checksum combination using u64 lane operations.
+/// Processes 4 u16 elements per iteration (8 bytes at a time).
+/// Uses lane-masking to prevent carry propagation between elements.
+#[inline]
+fn combine_checksums_fast(a: &mut [u8], b: &[u8]) {
+    debug_assert_eq!(a.len(), 2048);
+    debug_assert_eq!(b.len(), 2048);
+
+    // Process as u64 words (256 iterations instead of 1024)
+    // Each u64 contains 4 u16 elements in little-endian order
+    let a_ptr = a.as_mut_ptr() as *mut u64;
+    let b_ptr = b.as_ptr() as *const u64;
+
+    // Masks for lane-isolated addition (prevents carry between u16 elements)
+    // For u16 elements: process even and odd pairs separately
+    const MASK_LO: u64 = 0x0000FFFF0000FFFF; // Elements 0 and 2
+    const MASK_HI: u64 = 0xFFFF0000FFFF0000; // Elements 1 and 3
+
+    unsafe {
+        for i in 0..256 {
+            let av = *a_ptr.add(i);
+            let bv = *b_ptr.add(i);
+
+            // Add low lanes (mask off high bits, add, mask result)
+            let lo_a = av & MASK_LO;
+            let lo_b = bv & MASK_LO;
+            let lo_sum = lo_a.wrapping_add(lo_b) & MASK_LO;
+
+            // Add high lanes
+            let hi_a = av & MASK_HI;
+            let hi_b = bv & MASK_HI;
+            let hi_sum = hi_a.wrapping_add(hi_b) & MASK_HI;
+
+            // Combine lanes
+            *a_ptr.add(i) = lo_sum | hi_sum;
+        }
+    }
+}
 
 /// File info with just the filename for use with openat().
 struct FileEntry {
@@ -340,7 +395,7 @@ fn hash_directory_flat(
         return Ok((LtHash16_1024::new()?, Stats::new()));
     }
 
-    let hash = hash_files_parallel(file_infos)?;
+    let hash = hash_files_parallel(file_infos, total_bytes)?;
     progress.add_files(files_found, total_bytes);
 
     Ok((
@@ -449,7 +504,7 @@ fn hash_dir_recursive_inner(
 
     let mut dir_hash = if !ctx.files.is_empty() {
         stats.files_hashed = ctx.files.len();
-        let checksum = hash_dir_files_openat(&ctx)?;
+        let checksum = hash_dir_files_openat(&ctx, total_bytes)?;
         progress.add_files(stats.files_hashed, total_bytes);
         LtHash16_1024::with_checksum(&checksum)?
     } else {
@@ -511,15 +566,134 @@ fn collect_file_infos(
 /// Minimum file size to apply I/O hints. For smaller files, syscall overhead exceeds benefit.
 const IO_HINT_THRESHOLD: u64 = 262144; // 256KB
 
+/// Open flags for Linux: O_RDONLY | O_NOATIME (skip access time updates)
+#[cfg(target_os = "linux")]
+const OPEN_FLAGS: libc::c_int = libc::O_RDONLY | libc::O_NOATIME;
+
+/// Open flags for non-Linux: O_RDONLY only
+#[cfg(not(target_os = "linux"))]
+const OPEN_FLAGS: libc::c_int = libc::O_RDONLY;
+
+/// Hash a small file using mmap to reduce syscall overhead.
+/// Only used for files smaller than MMAP_THRESHOLD.
+#[cfg(unix)]
+fn hash_file_mmap(
+    dir_fd: RawFd,
+    entry: &FileEntry,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), OPEN_FLAGS) };
+    if fd < 0 {
+        // O_NOATIME may fail for files we don't own; fall back to regular open
+        #[cfg(target_os = "linux")]
+        {
+            let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
+            if fd < 0 {
+                return Err(format!(
+                    "openat failed: {}",
+                    std::io::Error::last_os_error()
+                )
+                .into());
+            }
+            return hash_file_mmap_with_fd(fd, entry.size);
+        }
+        #[cfg(not(target_os = "linux"))]
+        return Err(format!(
+            "openat failed: {}",
+            std::io::Error::last_os_error()
+        )
+        .into());
+    }
+    hash_file_mmap_with_fd(fd, entry.size)
+}
+
+#[cfg(unix)]
+fn hash_file_mmap_with_fd(
+    fd: RawFd,
+    size: u64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    // Handle empty files
+    if size == 0 {
+        unsafe { libc::close(fd); }
+        let hasher = blake3::Hasher::new();
+        return OUTPUT_BUFFER.with(|buf| {
+            let mut output = buf.borrow_mut();
+            hasher.finalize_xof().fill(&mut output);
+            Ok(output.clone())
+        });
+    }
+
+    let ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            size as usize,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            fd,
+            0,
+        )
+    };
+
+    unsafe { libc::close(fd); }
+
+    if ptr == libc::MAP_FAILED {
+        return Err(format!("mmap failed: {}", std::io::Error::last_os_error()).into());
+    }
+
+    // Hint sequential access for mmap region
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::madvise(ptr, size as usize, libc::MADV_SEQUENTIAL);
+    }
+
+    let data = unsafe { std::slice::from_raw_parts(ptr as *const u8, size as usize) };
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(data);
+
+    // Hint we're done with this memory
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::madvise(ptr, size as usize, libc::MADV_DONTNEED);
+    }
+
+    unsafe { libc::munmap(ptr, size as usize); }
+
+    OUTPUT_BUFFER.with(|buf| {
+        let mut output = buf.borrow_mut();
+        hasher.finalize_xof().fill(&mut output);
+        Ok(output.clone())
+    })
+}
+
 /// Hash a file using openat() to avoid path resolution overhead.
 /// Takes a directory fd and filename instead of full path.
+/// Uses thread-local buffers to avoid allocations.
 fn hash_file_openat(
     dir_fd: RawFd,
     entry: &FileEntry,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    // Open file relative to directory fd
-    let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
+    // Use mmap for small files to reduce syscall overhead
+    #[cfg(unix)]
+    if entry.size > 0 && entry.size < MMAP_THRESHOLD {
+        return hash_file_mmap(dir_fd, entry);
+    }
+
+    // Open file relative to directory fd with O_NOATIME on Linux
+    let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), OPEN_FLAGS) };
     if fd < 0 {
+        // O_NOATIME may fail for files we don't own; fall back to regular open
+        #[cfg(target_os = "linux")]
+        {
+            let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
+            if fd < 0 {
+                return Err(format!(
+                    "openat failed: {}",
+                    std::io::Error::last_os_error()
+                )
+                .into());
+            }
+            return hash_file_openat_with_fd(fd, entry.size);
+        }
+        #[cfg(not(target_os = "linux"))]
         return Err(format!(
             "openat failed: {}",
             std::io::Error::last_os_error()
@@ -527,42 +701,60 @@ fn hash_file_openat(
         .into());
     }
 
+    hash_file_openat_with_fd(fd, entry.size)
+}
+
+/// Inner hash function with explicit fd, using thread-local buffers.
+fn hash_file_openat_with_fd(
+    fd: RawFd,
+    size: u64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     // Wrap in File for automatic close and safe reading
     let mut file = unsafe { File::from_raw_fd(fd) };
 
     // Apply I/O hints for larger files
     #[cfg(target_os = "linux")]
-    if entry.size >= IO_HINT_THRESHOLD {
+    if size >= IO_HINT_THRESHOLD {
         unsafe {
             libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
         }
     }
 
     #[cfg(target_os = "macos")]
-    if entry.size >= IO_HINT_THRESHOLD {
+    if size >= IO_HINT_THRESHOLD {
         unsafe {
             libc::fcntl(fd, libc::F_RDAHEAD, 1);
         }
     }
 
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; 65536];
 
-    loop {
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
+    // Use thread-local buffer to avoid allocation per file
+    READ_BUFFER.with(|buf| {
+        let mut buffer = buf.borrow_mut();
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
         }
-        hasher.update(&buffer[..n]);
-    }
+        Ok::<_, std::io::Error>(())
+    })?;
 
-    let mut output = vec![0u8; 2048];
-    hasher.finalize_xof().fill(&mut output);
+    // Use thread-local output buffer
+    let output = OUTPUT_BUFFER.with(|buf| {
+        let mut output = buf.borrow_mut();
+        hasher.finalize_xof().fill(&mut output);
+        output.clone()
+    });
 
     #[cfg(target_os = "linux")]
-    if entry.size >= IO_HINT_THRESHOLD {
+    if size >= IO_HINT_THRESHOLD {
+        // Note: fd is now owned by `file` so we need to get it back
+        let fd = file.as_raw_fd();
         unsafe {
-            libc::posix_fadvise(fd, 0, entry.size as i64, libc::POSIX_FADV_DONTNEED);
+            libc::posix_fadvise(fd, 0, size as i64, libc::POSIX_FADV_DONTNEED);
         }
     }
 
@@ -570,38 +762,52 @@ fn hash_file_openat(
 }
 
 /// Hash all files in a DirContext using openat().
+/// Uses adaptive parallelism: sequential for small workloads, parallel for large.
 fn hash_dir_files_openat(
     ctx: &DirContext,
+    total_bytes: u64,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     if ctx.files.is_empty() {
         return Ok(vec![0u8; 2048]);
     }
 
-    // Hash files in parallel using openat
-    let combined: Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> = ctx
-        .files
-        .par_iter()
-        .map(|entry| hash_file_openat(ctx.dir_fd, entry))
-        .try_reduce(
-            || vec![0u8; 2048],
-            |mut a, b| {
-                // LtHash16: element-wise wrapping u16 addition
-                for i in 0..1024 {
-                    let offset = i * 2;
-                    let av = u16::from_le_bytes([a[offset], a[offset + 1]]);
-                    let bv = u16::from_le_bytes([b[offset], b[offset + 1]]);
-                    let sum = av.wrapping_add(bv);
-                    a[offset..offset + 2].copy_from_slice(&sum.to_le_bytes());
-                }
-                Ok(a)
-            },
-        );
+    // Adaptive parallelism: only parallelize when workload is large enough
+    // to overcome thread overhead
+    let use_parallel =
+        ctx.files.len() >= PARALLEL_FILE_THRESHOLD && total_bytes >= PARALLEL_BYTE_THRESHOLD;
 
-    combined
+    if use_parallel {
+        // Parallel path with fast checksum combination
+        ctx.files
+            .par_iter()
+            .map(|entry| hash_file_openat(ctx.dir_fd, entry))
+            .try_reduce(
+                || vec![0u8; 2048],
+                |mut a, b| {
+                    combine_checksums_fast(&mut a, &b);
+                    Ok(a)
+                },
+            )
+    } else {
+        // Sequential path for small workloads - avoid thread overhead
+        let mut combined = vec![0u8; 2048];
+        for entry in &ctx.files {
+            let hash = hash_file_openat(ctx.dir_fd, entry)?;
+            combine_checksums_fast(&mut combined, &hash);
+        }
+        Ok(combined)
+    }
 }
 
 /// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
+/// Uses thread-local buffers to avoid allocations.
 fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    // Use mmap for small files
+    #[cfg(unix)]
+    if info.size > 0 && info.size < MMAP_THRESHOLD {
+        return hash_file_mmap_path(&info.path, info.size);
+    }
+
     let mut file = File::open(&info.path)?;
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -623,18 +829,25 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
     }
 
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = [0u8; 65536];
 
-    loop {
-        let n = file.read(&mut buffer)?;
-        if n == 0 {
-            break;
+    // Use thread-local buffer
+    READ_BUFFER.with(|buf| {
+        let mut buffer = buf.borrow_mut();
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
         }
-        hasher.update(&buffer[..n]);
-    }
+        Ok::<_, std::io::Error>(())
+    })?;
 
-    let mut output = vec![0u8; 2048];
-    hasher.finalize_xof().fill(&mut output);
+    let output = OUTPUT_BUFFER.with(|buf| {
+        let mut output = buf.borrow_mut();
+        hasher.finalize_xof().fill(&mut output);
+        output.clone()
+    });
 
     #[cfg(target_os = "linux")]
     if info.size >= IO_HINT_THRESHOLD {
@@ -646,31 +859,75 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
     Ok(output)
 }
 
-/// Hash files in parallel, combining checksums via tree reduction.
+/// Hash a file using mmap given a path (for flat mode).
+#[cfg(unix)]
+fn hash_file_mmap_path(
+    path: &Path,
+    size: u64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let path_cstr = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "invalid file path")?;
+
+    let fd = unsafe { libc::open(path_cstr.as_ptr(), OPEN_FLAGS) };
+    if fd < 0 {
+        // Fallback for O_NOATIME failure
+        #[cfg(target_os = "linux")]
+        {
+            let fd = unsafe { libc::open(path_cstr.as_ptr(), libc::O_RDONLY) };
+            if fd < 0 {
+                return Err(format!(
+                    "open failed: {}",
+                    std::io::Error::last_os_error()
+                )
+                .into());
+            }
+            return hash_file_mmap_with_fd(fd, size);
+        }
+        #[cfg(not(target_os = "linux"))]
+        return Err(format!(
+            "open failed: {}",
+            std::io::Error::last_os_error()
+        )
+        .into());
+    }
+
+    hash_file_mmap_with_fd(fd, size)
+}
+
+/// Hash files, using adaptive parallelism.
+/// Sequential for small workloads, parallel for large.
 fn hash_files_parallel(
     file_infos: Vec<FileInfo>,
+    total_bytes: u64,
 ) -> Result<LtHash16_1024, Box<dyn std::error::Error + Send + Sync>> {
     if file_infos.is_empty() {
         return Ok(LtHash16_1024::new()?);
     }
 
-    let combined: Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> = file_infos
-        .par_iter()
-        .map(|info| hash_file_optimized(info))
-        .try_reduce(
-            || vec![0u8; 2048],
-            |mut a, b| {
-                // LtHash16: element-wise wrapping u16 addition
-                for i in 0..1024 {
-                    let offset = i * 2;
-                    let av = u16::from_le_bytes([a[offset], a[offset + 1]]);
-                    let bv = u16::from_le_bytes([b[offset], b[offset + 1]]);
-                    let sum = av.wrapping_add(bv);
-                    a[offset..offset + 2].copy_from_slice(&sum.to_le_bytes());
-                }
-                Ok(a)
-            },
-        );
+    // Adaptive parallelism
+    let use_parallel =
+        file_infos.len() >= PARALLEL_FILE_THRESHOLD && total_bytes >= PARALLEL_BYTE_THRESHOLD;
+
+    let combined: Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> = if use_parallel {
+        file_infos
+            .par_iter()
+            .map(|info| hash_file_optimized(info))
+            .try_reduce(
+                || vec![0u8; 2048],
+                |mut a, b| {
+                    combine_checksums_fast(&mut a, &b);
+                    Ok(a)
+                },
+            )
+    } else {
+        // Sequential for small workloads
+        let mut combined = vec![0u8; 2048];
+        for info in &file_infos {
+            let hash = hash_file_optimized(info)?;
+            combine_checksums_fast(&mut combined, &hash);
+        }
+        Ok(combined)
+    };
 
     LtHash16_1024::with_checksum(&combined?)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
