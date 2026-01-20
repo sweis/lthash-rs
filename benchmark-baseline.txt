@@ -412,3 +412,101 @@ Found 10 outliers among 100 measurements (10.00%)
   5 (5.00%) high mild
   5 (5.00%) high severe
 
+
+================================================================================
+BENCHMARK RUN: 2026-01-20T21:14:24+00:00
+Environment: Linux container (Claude Code remote session)
+Backend: BLAKE3 (default)
+================================================================================
+
+blake3/hash_64B_to_64B  time:   [85.991 ns 87.416 ns 89.087 ns]
+                        thrpt:  [685.12 MiB/s 698.21 MiB/s 709.79 MiB/s]
+blake3/hash_64B_to_2048B
+                        time:   [381.33 ns 382.33 ns 383.56 ns]
+                        thrpt:  [159.13 MiB/s 159.64 MiB/s 160.06 MiB/s]
+blake3/hash_256B_to_64B time:   [276.30 ns 276.57 ns 276.93 ns]
+                        thrpt:  [881.59 MiB/s 882.75 MiB/s 883.61 MiB/s]
+blake3/hash_256B_to_2048B
+                        time:   [595.93 ns 596.56 ns 597.23 ns]
+                        thrpt:  [408.79 MiB/s 409.25 MiB/s 409.68 MiB/s]
+blake3/hash_1024B_to_64B
+                        time:   [1.0383 µs 1.0391 µs 1.0402 µs]
+                        thrpt:  [938.87 MiB/s 939.79 MiB/s 940.55 MiB/s]
+blake3/hash_1024B_to_2048B
+                        time:   [1.3689 µs 1.3700 µs 1.3715 µs]
+                        thrpt:  [712.06 MiB/s 712.82 MiB/s 713.37 MiB/s]
+blake3/hash_4096B_to_64B
+                        time:   [1.2400 µs 1.2426 µs 1.2459 µs]
+                        thrpt:  [3.0618 GiB/s 3.0699 GiB/s 3.0764 GiB/s]
+blake3/hash_4096B_to_2048B
+                        time:   [1.5210 µs 1.5222 µs 1.5238 µs]
+                        thrpt:  [2.5034 GiB/s 2.5060 GiB/s 2.5081 GiB/s]
+
+lthash_add/16_1024_add_32B
+                        time:   [504.15 ns 505.27 ns 506.51 ns]
+                        thrpt:  [60.251 MiB/s 60.399 MiB/s 60.533 MiB/s]
+lthash_add/20_1008_add_32B
+                        time:   [712.36 ns 713.42 ns 714.73 ns]
+                        thrpt:  [42.698 MiB/s 42.776 MiB/s 42.840 MiB/s]
+lthash_add/32_1024_add_32B
+                        time:   [941.43 ns 943.42 ns 945.91 ns]
+                        thrpt:  [32.263 MiB/s 32.348 MiB/s 32.416 MiB/s]
+lthash_add/16_1024_add_128B
+                        time:   [586.93 ns 587.66 ns 588.45 ns]
+                        thrpt:  [207.45 MiB/s 207.72 MiB/s 207.98 MiB/s]
+lthash_add/20_1008_add_128B
+                        time:   [777.60 ns 778.54 ns 779.48 ns]
+                        thrpt:  [156.61 MiB/s 156.79 MiB/s 156.98 MiB/s]
+lthash_add/32_1024_add_128B
+                        time:   [1.0196 µs 1.0206 µs 1.0216 µs]
+                        thrpt:  [119.48 MiB/s 119.61 MiB/s 119.72 MiB/s]
+lthash_add/16_1024_add_512B
+                        time:   [961.27 ns 963.06 ns 965.40 ns]
+                        thrpt:  [505.78 MiB/s 507.01 MiB/s 507.95 MiB/s]
+lthash_add/20_1008_add_512B
+                        time:   [1.1614 µs 1.1627 µs 1.1642 µs]
+                        thrpt:  [419.43 MiB/s 419.96 MiB/s 420.43 MiB/s]
+lthash_add/32_1024_add_512B
+                        time:   [1.3869 µs 1.3900 µs 1.3948 µs]
+                        thrpt:  [350.08 MiB/s 351.28 MiB/s 352.06 MiB/s]
+lthash_add/16_1024_add_1024B
+                        time:   [1.4855 µs 1.4869 µs 1.4886 µs]
+                        thrpt:  [656.02 MiB/s 656.78 MiB/s 657.41 MiB/s]
+lthash_add/20_1008_add_1024B
+                        time:   [1.6703 µs 1.6727 µs 1.6759 µs]
+                        thrpt:  [582.70 MiB/s 583.84 MiB/s 584.66 MiB/s]
+lthash_add/32_1024_add_1024B
+                        time:   [1.8972 µs 1.9147 µs 1.9374 µs]
+                        thrpt:  [504.06 MiB/s 510.04 MiB/s 514.73 MiB/s]
+
+lthash_combine/16_1024_try_add
+                        time:   [135.84 ns 137.20 ns 139.08 ns]
+lthash_combine/16_1024_try_sub
+                        time:   [139.63 ns 140.15 ns 140.75 ns]
+lthash_combine/32_1024_try_add
+                        time:   [181.31 ns 181.69 ns 182.13 ns]
+
+checksum_compare/16_1024_checksum_eq
+                        time:   [34.892 ns 35.028 ns 35.199 ns]
+checksum_compare/16_1024_eq
+                        time:   [47.773 ns 48.067 ns 48.473 ns]
+
+creation/16_1024_new    time:   [1.5954 µs 1.6034 µs 1.6140 µs]
+creation/20_1008_new    time:   [2.0643 µs 2.0700 µs 2.0771 µs]
+creation/32_1024_new    time:   [3.0787 µs 3.0840 µs 3.0904 µs]
+creation/16_1024_with_checksum
+                        time:   [1.6231 µs 1.6267 µs 1.6313 µs]
+
+parallel/100x1024B_sequential
+                        time:   [148.83 µs 149.05 µs 149.28 µs]
+                        thrpt:  [654.17 MiB/s 655.20 MiB/s 656.17 MiB/s]
+parallel/100x1024B_parallel
+                        time:   [177.25 µs 178.12 µs 179.01 µs]
+                        thrpt:  [545.54 MiB/s 548.25 MiB/s 550.96 MiB/s]
+
+parallel_streaming/16x65536B_sequential_stream
+                        time:   [242.05 µs 242.47 µs 242.95 µs]
+                        thrpt:  [4.0196 GiB/s 4.0276 GiB/s 4.0345 GiB/s]
+parallel_streaming/16x65536B_parallel_stream
+                        time:   [303.30 µs 306.46 µs 310.31 µs]
+                        thrpt:  [3.1470 GiB/s 3.1866 GiB/s 3.2198 GiB/s]
