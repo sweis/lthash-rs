@@ -3,7 +3,7 @@ use lthash::LtHash16_1024;
 use rayon::prelude::*;
 use std::fs::{self, File};
 use std::io::{Read, Write};
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -12,6 +12,7 @@ use std::time::Instant;
 
 struct FileInfo {
     path: PathBuf,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     size: u64,
 }
 
@@ -469,10 +470,10 @@ fn collect_file_infos(
 fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut file = File::open(&info.path)?;
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     let fd = file.as_raw_fd();
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     unsafe {
         libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
     }
@@ -491,7 +492,7 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
     let mut output = vec![0u8; 2048];
     hasher.finalize_xof().fill(&mut output);
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     unsafe {
         // Evict from page cache (NOREUSE is a no-op on Linux < 6.3)
         libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
