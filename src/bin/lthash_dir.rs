@@ -11,16 +11,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// SIMD-optimized u16 element-wise wrapping addition for LtHash combination.
-/// Processes 2048 bytes (1024 u16 elements) at a time.
-/// Uses explicit SIMD on supported platforms, falls back to optimized scalar.
+/// Element-wise u16 wrapping addition for LtHash combination.
+/// Uses split-lane arithmetic that auto-vectorizes well.
 #[inline(always)]
-fn combine_checksums_simd(dest: &mut [u8], src: &[u8]) {
+fn combine_checksums(dest: &mut [u8], src: &[u8]) {
     debug_assert_eq!(dest.len(), 2048);
     debug_assert_eq!(src.len(), 2048);
 
-    // Process as u64 for better performance (4 u16s at a time)
-    // The compiler can auto-vectorize this pattern effectively
     let dest_u64 = unsafe {
         std::slice::from_raw_parts_mut(dest.as_mut_ptr() as *mut u64, 256)
     };
@@ -28,34 +25,25 @@ fn combine_checksums_simd(dest: &mut [u8], src: &[u8]) {
         std::slice::from_raw_parts(src.as_ptr() as *const u64, 256)
     };
 
-    // Split-lane addition for u16 elements packed in u64
-    // This pattern is SIMD-friendly and auto-vectorizes well
     const MASK_A: u64 = 0xffff0000ffff0000u64;
     const MASK_B: u64 = 0x0000ffff0000ffffu64;
 
     for i in 0..256 {
         let a = dest_u64[i];
         let b = src_u64[i];
-
-        // Split into alternating lanes
         let a_a = a & MASK_A;
         let a_b = a & MASK_B;
         let b_a = b & MASK_A;
         let b_b = b & MASK_B;
-
-        // Add each lane independently (wrapping within 16 bits)
         let result_a = a_a.wrapping_add(b_a) & MASK_A;
         let result_b = a_b.wrapping_add(b_b) & MASK_B;
-
         dest_u64[i] = result_a | result_b;
     }
 }
 
-/// Optimized reduction function for combining multiple checksums.
-/// Uses SIMD-friendly patterns for better auto-vectorization.
 #[inline]
 fn reduce_checksums(mut a: Vec<u8>, b: Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    combine_checksums_simd(&mut a, &b);
+    combine_checksums(&mut a, &b);
     Ok(a)
 }
 
@@ -80,7 +68,7 @@ impl Drop for DirContext {
     }
 }
 
-// Legacy struct for fallback path
+/// File info for flat directory mode (uses full path).
 struct FileInfo {
     path: PathBuf,
     size: u64,
@@ -93,8 +81,7 @@ struct Args {
     progress: bool,
 }
 
-/// Thread-safe progress tracking with ETA estimation.
-/// Uses rate-limited printing to reduce overhead from frequent updates.
+/// Thread-safe progress tracking with rate-limited printing.
 struct Progress {
     files_processed: AtomicUsize,
     dirs_processed: AtomicUsize,
@@ -347,16 +334,12 @@ fn format_duration(secs: f64) -> String {
     }
 }
 
-/// Quick scan to count files and total bytes for ETA estimation.
-/// Uses parallel scanning for recursive mode to improve performance on deep trees.
+/// Scan directory to count files and bytes for ETA estimation.
 fn scan_directory(dir: &str, include_hidden: bool, recursive: bool) -> (usize, u64) {
     let root = Path::new(dir);
-
     if recursive {
-        // Use parallel scanning for recursive mode
         scan_directory_parallel(root, include_hidden)
     } else {
-        // Single directory: use simple scan
         scan_single_directory(root, include_hidden)
     }
 }
@@ -392,8 +375,7 @@ fn scan_single_directory(path: &Path, include_hidden: bool) -> (usize, u64) {
     (files, bytes)
 }
 
-/// Parallel recursive directory scanning for ETA estimation.
-/// Spawns parallel tasks for subdirectories to improve performance.
+/// Parallel recursive directory scan.
 fn scan_directory_parallel(path: &Path, include_hidden: bool) -> (usize, u64) {
     let entries = match fs::read_dir(path) {
         Ok(e) => e,
@@ -424,7 +406,6 @@ fn scan_directory_parallel(path: &Path, include_hidden: bool) -> (usize, u64) {
         }
     }
 
-    // Parallel scan of subdirectories
     if !subdirs.is_empty() {
         let subdir_results: Vec<(usize, u64)> = subdirs
             .par_iter()
@@ -627,15 +608,11 @@ fn collect_file_infos(
     Ok((file_infos, total_bytes))
 }
 
-/// Minimum file size to apply I/O hints. For smaller files, syscall overhead exceeds benefit.
-const IO_HINT_THRESHOLD: u64 = 262144; // 256KB
+const IO_HINT_THRESHOLD: u64 = 262144; // 256KB - minimum size for I/O hints
+const SMALL_BUFFER_SIZE: usize = 65536;   // 64KB
+const MEDIUM_BUFFER_SIZE: usize = 262144; // 256KB
+const LARGE_BUFFER_SIZE: usize = 1048576; // 1MB
 
-/// Buffer sizes for adaptive I/O based on file size
-const SMALL_BUFFER_SIZE: usize = 65536;      // 64KB for files < 1MB
-const MEDIUM_BUFFER_SIZE: usize = 262144;    // 256KB for files 1-16MB
-const LARGE_BUFFER_SIZE: usize = 1048576;    // 1MB for files > 16MB
-
-/// Get optimal buffer size based on file size
 #[inline]
 fn get_buffer_size(file_size: u64) -> usize {
     if file_size < 1_048_576 {
@@ -647,14 +624,11 @@ fn get_buffer_size(file_size: u64) -> usize {
     }
 }
 
-/// Hash a file using openat() to avoid path resolution overhead.
-/// Takes a directory fd and filename instead of full path.
-/// Uses adaptive buffer sizing for optimal performance on different file sizes.
+/// Hash a file using openat() with adaptive buffer sizing.
 fn hash_file_openat(
     dir_fd: RawFd,
     entry: &FileEntry,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    // Open file relative to directory fd
     let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
     if fd < 0 {
         return Err(format!(
@@ -683,29 +657,20 @@ fn hash_file_openat(
     }
 
     let mut hasher = blake3::Hasher::new();
-
-    // Use adaptive buffer sizing based on file size
     let buffer_size = get_buffer_size(entry.size);
 
-    // Use a thread-local buffer pool for large buffers to avoid repeated allocations
     if buffer_size <= SMALL_BUFFER_SIZE {
-        // Small buffer: stack-allocated
         let mut buffer = [0u8; SMALL_BUFFER_SIZE];
         loop {
             let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
+            if n == 0 { break; }
             hasher.update(&buffer[..n]);
         }
     } else {
-        // Large buffer: heap-allocated
         let mut buffer = vec![0u8; buffer_size];
         loop {
             let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
+            if n == 0 { break; }
             hasher.update(&buffer[..n]);
         }
     }
@@ -715,24 +680,19 @@ fn hash_file_openat(
 
     #[cfg(target_os = "linux")]
     if entry.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(fd, 0, entry.size as i64, libc::POSIX_FADV_DONTNEED);
-        }
+        unsafe { libc::posix_fadvise(fd, 0, entry.size as i64, libc::POSIX_FADV_DONTNEED); }
     }
 
     Ok(output)
 }
 
 /// Hash all files in a DirContext using openat().
-/// Uses SIMD-optimized reduction for combining file hashes.
 fn hash_dir_files_openat(
     ctx: &DirContext,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     if ctx.files.is_empty() {
         return Ok(vec![0u8; 2048]);
     }
-
-    // Hash files in parallel using openat with SIMD-optimized reduction
     ctx.files
         .par_iter()
         .map(|entry| hash_file_openat(ctx.dir_fd, entry))
@@ -740,51 +700,37 @@ fn hash_dir_files_openat(
 }
 
 /// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
-/// Uses adaptive buffer sizing for optimal performance.
 fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut file = File::open(&info.path)?;
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     let fd = file.as_raw_fd();
 
-    // Only apply I/O hints for larger files where benefit exceeds syscall overhead
     #[cfg(target_os = "linux")]
     if info.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-        }
+        unsafe { libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL); }
     }
 
     #[cfg(target_os = "macos")]
     if info.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::fcntl(fd, libc::F_RDAHEAD, 1);
-        }
+        unsafe { libc::fcntl(fd, libc::F_RDAHEAD, 1); }
     }
 
     let mut hasher = blake3::Hasher::new();
-
-    // Use adaptive buffer sizing based on file size
     let buffer_size = get_buffer_size(info.size);
 
     if buffer_size <= SMALL_BUFFER_SIZE {
-        // Small buffer: stack-allocated
         let mut buffer = [0u8; SMALL_BUFFER_SIZE];
         loop {
             let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
+            if n == 0 { break; }
             hasher.update(&buffer[..n]);
         }
     } else {
-        // Large buffer: heap-allocated
         let mut buffer = vec![0u8; buffer_size];
         loop {
             let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
+            if n == 0 { break; }
             hasher.update(&buffer[..n]);
         }
     }
@@ -794,16 +740,13 @@ fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::E
 
     #[cfg(target_os = "linux")]
     if info.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
-        }
+        unsafe { libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED); }
     }
 
     Ok(output)
 }
 
-/// Hash files in parallel, combining checksums via tree reduction.
-/// Uses SIMD-optimized reduction for combining file hashes.
+/// Hash files in parallel with tree reduction.
 fn hash_files_parallel(
     file_infos: Vec<FileInfo>,
 ) -> Result<LtHash16_1024, Box<dyn std::error::Error + Send + Sync>> {
