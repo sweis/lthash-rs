@@ -19,7 +19,7 @@ cargo install --path .
 
 # Hash a single file
 lthash myfile.txt
-# Output: VTvPKXvZuft8iY...  (URL-safe base64, 2732 chars for LtHash16_1024)
+# Output: VTvPKXvZuft8iY...  (URL-safe base64, 2731 chars for LtHash16_1024)
 
 # Hash stdin
 echo -n "hello" | lthash -

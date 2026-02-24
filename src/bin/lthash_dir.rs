@@ -11,13 +11,15 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Checksum size in bytes for LtHash16_1024, used throughout for buffer allocation.
+const CHECKSUM_SIZE: usize = LtHash16_1024::checksum_size_bytes();
+
 /// SIMD-optimized u16 element-wise wrapping addition for LtHash combination.
-/// Processes 2048 bytes (1024 u16 elements) at a time.
 /// Uses `align_to` for safe alignment handling with auto-vectorization.
-#[inline(always)]
+#[inline]
 fn combine_checksums_simd(dest: &mut [u8], src: &[u8]) {
-    debug_assert_eq!(dest.len(), 2048);
-    debug_assert_eq!(src.len(), 2048);
+    debug_assert_eq!(dest.len(), CHECKSUM_SIZE);
+    debug_assert_eq!(src.len(), CHECKSUM_SIZE);
 
     // Use align_to for safe u64 reinterpretation (handles alignment correctly).
     // Vec<u8> from the global allocator is always at least pointer-aligned,
@@ -29,30 +31,20 @@ fn combine_checksums_simd(dest: &mut [u8], src: &[u8]) {
         "Checksum buffers must be u64-aligned"
     );
 
-    // Split-lane addition for u16 elements packed in u64
-    // This pattern is SIMD-friendly and auto-vectorizes well
+    // Split-lane addition for u16 elements packed in u64.
+    // This pattern is SIMD-friendly and auto-vectorizes well.
     const MASK_A: u64 = 0xffff_0000_ffff_0000_u64;
     const MASK_B: u64 = 0x0000_ffff_0000_ffff_u64;
 
     for (d, &s) in dest_u64.iter_mut().zip(src_u64.iter()) {
         let a = *d;
-
-        // Split into alternating lanes
-        let a_a = a & MASK_A;
-        let a_b = a & MASK_B;
-        let b_a = s & MASK_A;
-        let b_b = s & MASK_B;
-
-        // Add each lane independently (wrapping within 16 bits)
-        let result_a = a_a.wrapping_add(b_a) & MASK_A;
-        let result_b = a_b.wrapping_add(b_b) & MASK_B;
-
+        let result_a = (a & MASK_A).wrapping_add(s & MASK_A) & MASK_A;
+        let result_b = (a & MASK_B).wrapping_add(s & MASK_B) & MASK_B;
         *d = result_a | result_b;
     }
 }
 
-/// Optimized reduction function for combining multiple checksums.
-/// Uses SIMD-friendly patterns for better auto-vectorization.
+/// Reduction function for combining multiple checksums via rayon's try_reduce.
 #[inline]
 fn reduce_checksums(
     mut a: Vec<u8>,
@@ -83,7 +75,7 @@ impl Drop for DirContext {
     }
 }
 
-// Legacy struct for fallback path
+/// File info with full path for the flat-directory hashing path.
 struct FileInfo {
     path: PathBuf,
     size: u64,
@@ -104,7 +96,7 @@ struct Progress {
     bytes_processed: AtomicU64,
     total_bytes: AtomicU64,
     total_files: AtomicUsize,
-    last_print: AtomicU64, // Last print time in millis since start
+    last_print: AtomicU64,
     start_time: Instant,
     enabled: bool,
 }
@@ -112,9 +104,17 @@ struct Progress {
 /// Minimum interval between progress prints (milliseconds)
 const PROGRESS_PRINT_INTERVAL_MS: u64 = 100;
 
+/// Minimum file size to apply I/O hints. For smaller files, syscall overhead exceeds benefit.
+const IO_HINT_THRESHOLD: u64 = 262_144; // 256KB
+
+/// Buffer sizes for adaptive I/O based on file size
+const SMALL_BUFFER_SIZE: usize = 65_536; // 64KB for files < 1MB
+const MEDIUM_BUFFER_SIZE: usize = 262_144; // 256KB for files 1-16MB
+const LARGE_BUFFER_SIZE: usize = 1_048_576; // 1MB for files > 16MB
+
 impl Progress {
     fn new(enabled: bool) -> Self {
-        Progress {
+        Self {
             files_processed: AtomicUsize::new(0),
             dirs_processed: AtomicUsize::new(0),
             bytes_processed: AtomicU64::new(0),
@@ -151,16 +151,13 @@ impl Progress {
         let now_ms = self.start_time.elapsed().as_millis() as u64;
         let last = self.last_print.load(Ordering::Relaxed);
 
-        // Only print if enough time has passed
-        if now_ms.saturating_sub(last) >= PROGRESS_PRINT_INTERVAL_MS {
-            // Try to claim the print slot (avoid multiple threads printing)
-            if self
+        if now_ms.saturating_sub(last) >= PROGRESS_PRINT_INTERVAL_MS
+            && self
                 .last_print
                 .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
-            {
-                self.print_progress();
-            }
+        {
+            self.print_progress();
         }
     }
 
@@ -174,7 +171,6 @@ impl Progress {
         let elapsed = self.start_time.elapsed().as_secs_f64();
         let mb = bytes as f64 / 1_000_000.0;
 
-        // Calculate throughput and ETA
         let throughput = if elapsed > 0.01 {
             bytes as f64 / elapsed / 1_000_000.0
         } else {
@@ -185,30 +181,28 @@ impl Progress {
             let remaining_bytes = total_bytes.saturating_sub(bytes);
             let eta_secs = remaining_bytes as f64 / (throughput * 1_000_000.0);
             let pct = (bytes as f64 / total_bytes as f64 * 100.0).min(100.0);
-            format!(" | {:.0}% | ETA: {}", pct, format_duration(eta_secs))
+            format!(" | {pct:.0}% | ETA: {}", format_duration(eta_secs))
         } else if total_files > 0 {
             let pct = (files as f64 / total_files as f64 * 100.0).min(100.0);
-            format!(" | {:.0}%", pct)
+            format!(" | {pct:.0}%")
         } else {
             String::new()
         };
 
         let throughput_str = if throughput > 0.0 {
-            format!(" @ {:.0} MB/s", throughput)
+            format!(" @ {throughput:.0} MB/s")
         } else {
             String::new()
         };
 
         eprint!(
-            "\r\x1b[K  Processing: {} files, {} dirs, {:.1} MB{}{}",
-            files, dirs, mb, throughput_str, eta_str
+            "\r\x1b[K  Processing: {files} files, {dirs} dirs, {mb:.1} MB{throughput_str}{eta_str}"
         );
         let _ = std::io::stderr().flush();
     }
 
     fn finish(&self) {
         if self.enabled {
-            // Print final state
             self.print_progress();
             eprintln!();
         }
@@ -224,7 +218,7 @@ struct Stats {
 
 impl Stats {
     fn new() -> Self {
-        Stats {
+        Self {
             files_found: 0,
             files_hashed: 0,
             dirs_hashed: 0,
@@ -232,7 +226,7 @@ impl Stats {
         }
     }
 
-    fn merge(&mut self, other: Stats) {
+    fn merge(&mut self, other: &Stats) {
         self.files_found += other.files_found;
         self.files_hashed += other.files_hashed;
         self.dirs_hashed += other.dirs_hashed;
@@ -244,7 +238,7 @@ fn main() {
     let args = parse_args();
 
     if let Err(e) = run(&args) {
-        eprintln!("error: {}", e);
+        eprintln!("error: {e}");
         std::process::exit(1);
     }
 }
@@ -264,7 +258,7 @@ fn parse_args() -> Args {
             "--hidden" => include_hidden = true,
             arg if !arg.starts_with('-') => directory = arg.to_string(),
             other => {
-                eprintln!("unknown option: {}", other);
+                eprintln!("unknown option: {other}");
                 eprintln!("usage: lthash_dir [-r] [-p] [--hidden] [directory]");
                 std::process::exit(1);
             }
@@ -284,7 +278,6 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let start = Instant::now();
     let progress = Arc::new(Progress::new(args.progress));
 
-    // Quick scan to get totals for ETA estimation
     if args.progress {
         eprint!("  Scanning...");
         let _ = std::io::stderr().flush();
@@ -306,7 +299,7 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let total_time = start.elapsed();
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
 
-    println!("{}", encoded);
+    println!("{encoded}");
     eprintln!();
     eprintln!("Statistics:");
     eprintln!("  Directory:      {}", args.directory);
@@ -323,16 +316,21 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     eprintln!();
     eprintln!("Timing:");
-    eprintln!("  Total:          {:?}", total_time);
+    eprintln!("  Total:          {total_time:?}");
 
     if total_time.as_secs_f64() > 0.0 {
         let throughput = stats.total_bytes as f64 / total_time.as_secs_f64() / 1_000_000.0;
-        eprintln!("  Throughput:     {:.2} MB/s", throughput);
+        eprintln!("  Throughput:     {throughput:.2} MB/s");
     }
 
     Ok(())
 }
 
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn format_duration(secs: f64) -> String {
     if secs < 1.0 {
         "<1s".to_string()
@@ -340,37 +338,32 @@ fn format_duration(secs: f64) -> String {
         format!("{}s", secs as u64)
     } else if secs < 3600.0 {
         let mins = (secs / 60.0) as u64;
-        let secs = (secs % 60.0) as u64;
-        format!("{}m {}s", mins, secs)
+        let remainder = (secs % 60.0) as u64;
+        format!("{mins}m {remainder}s")
     } else {
         let hours = (secs / 3600.0) as u64;
         let mins = ((secs % 3600.0) / 60.0) as u64;
-        format!("{}h {}m", hours, mins)
+        format!("{hours}h {mins}m")
     }
 }
 
 /// Quick scan to count files and total bytes for ETA estimation.
-/// Uses parallel scanning for recursive mode to improve performance on deep trees.
 fn scan_directory(dir: &str, include_hidden: bool, recursive: bool) -> (usize, u64) {
     let root = Path::new(dir);
 
     if recursive {
-        // Use parallel scanning for recursive mode
         scan_directory_parallel(root, include_hidden)
     } else {
-        // Single directory: use simple scan
         scan_single_directory(root, include_hidden)
     }
 }
 
-/// Scan a single directory without recursion
 fn scan_single_directory(path: &Path, include_hidden: bool) -> (usize, u64) {
     let mut files = 0usize;
     let mut bytes = 0u64;
 
-    let entries = match fs::read_dir(path) {
-        Ok(e) => e,
-        Err(_) => return (0, 0),
+    let Ok(entries) = fs::read_dir(path) else {
+        return (0, 0);
     };
 
     for entry in entries.flatten() {
@@ -380,9 +373,8 @@ fn scan_single_directory(path: &Path, include_hidden: bool) -> (usize, u64) {
             continue;
         }
 
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(m) => m,
-            Err(_) => continue,
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
         };
 
         if metadata.is_file() {
@@ -395,11 +387,9 @@ fn scan_single_directory(path: &Path, include_hidden: bool) -> (usize, u64) {
 }
 
 /// Parallel recursive directory scanning for ETA estimation.
-/// Spawns parallel tasks for subdirectories to improve performance.
 fn scan_directory_parallel(path: &Path, include_hidden: bool) -> (usize, u64) {
-    let entries = match fs::read_dir(path) {
-        Ok(e) => e,
-        Err(_) => return (0, 0),
+    let Ok(entries) = fs::read_dir(path) else {
+        return (0, 0);
     };
 
     let mut files = 0usize;
@@ -413,9 +403,8 @@ fn scan_directory_parallel(path: &Path, include_hidden: bool) -> (usize, u64) {
             continue;
         }
 
-        let metadata = match fs::symlink_metadata(&entry_path) {
-            Ok(m) => m,
-            Err(_) => continue,
+        let Ok(metadata) = fs::symlink_metadata(&entry_path) else {
+            continue;
         };
 
         if metadata.is_file() {
@@ -426,7 +415,6 @@ fn scan_directory_parallel(path: &Path, include_hidden: bool) -> (usize, u64) {
         }
     }
 
-    // Parallel scan of subdirectories
     if !subdirs.is_empty() {
         let subdir_results: Vec<(usize, u64)> = subdirs
             .par_iter()
@@ -445,8 +433,7 @@ fn scan_directory_parallel(path: &Path, include_hidden: bool) -> (usize, u64) {
 fn is_hidden(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .map(|name| name.starts_with('.'))
-        .unwrap_or(false)
+        .map_or(false, |name| name.starts_with('.'))
 }
 
 fn hash_directory_flat(
@@ -482,7 +469,7 @@ fn hash_directory_recursive(
 ) -> Result<(LtHash16_1024, Stats), Box<dyn std::error::Error + Send + Sync>> {
     let root = Path::new(dir)
         .canonicalize()
-        .map_err(|e| format!("cannot resolve '{}': {}", dir, e))?;
+        .map_err(|e| format!("cannot resolve '{dir}': {e}"))?;
 
     hash_dir_recursive_inner(&root, include_hidden, progress)
 }
@@ -515,18 +502,14 @@ fn hash_dir_recursive_inner(
             unsafe {
                 libc::close(dir_fd);
             }
-            eprintln!("warning: cannot read '{}': {}", dir.display(), e);
+            eprintln!("warning: cannot read '{}': {e}", dir.display());
             return Ok((LtHash16_1024::new()?, Stats::new()));
         }
     };
 
     for entry in entries {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) => {
-                eprintln!("warning: cannot read entry: {}", e);
-                continue;
-            }
+        let Ok(entry) = entry else {
+            continue;
         };
 
         let path = entry.path();
@@ -537,12 +520,9 @@ fn hash_dir_recursive_inner(
         }
 
         // symlink_metadata avoids following symlinks
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("warning: cannot stat '{}': {}", path.display(), e);
-                continue;
-            }
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            eprintln!("warning: cannot stat '{}'", path.display());
+            continue;
         };
 
         let file_type = metadata.file_type();
@@ -550,7 +530,6 @@ fn hash_dir_recursive_inner(
         if file_type.is_file() {
             let size = metadata.len();
             total_bytes += size;
-            // Store just filename for openat()
             if let Ok(name) = CString::new(file_name.as_bytes()) {
                 file_entries.push(FileEntry { name, size });
             }
@@ -568,7 +547,6 @@ fn hash_dir_recursive_inner(
     stats.files_found = file_entries.len();
     stats.total_bytes = total_bytes;
 
-    // Create DirContext for openat-based hashing
     let ctx = DirContext {
         dir_fd,
         files: file_entries,
@@ -590,7 +568,7 @@ fn hash_dir_recursive_inner(
 
     for result in subdir_results {
         let (subdir_hash, subdir_stats) = result?;
-        stats.merge(subdir_stats);
+        stats.merge(&subdir_stats);
         stats.dirs_hashed += 1;
         dir_hash.try_add(&subdir_hash)?;
     }
@@ -609,7 +587,7 @@ fn collect_file_infos(
 
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) => return Err(format!("cannot read directory '{}': {}", dir, e).into()),
+        Err(e) => return Err(format!("cannot read directory '{dir}': {e}").into()),
     };
 
     for entry in entries.flatten() {
@@ -619,9 +597,8 @@ fn collect_file_infos(
             continue;
         }
 
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(m) => m,
-            Err(_) => continue,
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
         };
 
         if metadata.file_type().is_file() {
@@ -635,15 +612,7 @@ fn collect_file_infos(
     Ok((file_infos, total_bytes))
 }
 
-/// Minimum file size to apply I/O hints. For smaller files, syscall overhead exceeds benefit.
-const IO_HINT_THRESHOLD: u64 = 262144; // 256KB
-
-/// Buffer sizes for adaptive I/O based on file size
-const SMALL_BUFFER_SIZE: usize = 65536; // 64KB for files < 1MB
-const MEDIUM_BUFFER_SIZE: usize = 262144; // 256KB for files 1-16MB
-const LARGE_BUFFER_SIZE: usize = 1048576; // 1MB for files > 16MB
-
-/// Get optimal buffer size based on file size
+/// Get optimal buffer size based on file size.
 #[inline]
 fn get_buffer_size(file_size: u64) -> usize {
     if file_size < 1_048_576 {
@@ -655,167 +624,120 @@ fn get_buffer_size(file_size: u64) -> usize {
     }
 }
 
+/// Safely convert file size to i64 for posix_fadvise, clamping to avoid wrapping.
+#[cfg(target_os = "linux")]
+#[inline]
+fn file_size_as_i64(size: u64) -> i64 {
+    i64::try_from(size).unwrap_or(i64::MAX)
+}
+
+/// Apply pre-read I/O hints (sequential readahead) for large files.
+#[cfg(target_os = "linux")]
+fn apply_io_hints_pre(fd: RawFd, size: u64) {
+    if size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apply_io_hints_pre(fd: RawFd, size: u64) {
+    if size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::fcntl(fd, libc::F_RDAHEAD, 1);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn apply_io_hints_pre(_fd: RawFd, _size: u64) {}
+
+/// Advise the kernel to free cached pages after reading (reduces cache pollution).
+#[cfg(target_os = "linux")]
+fn apply_io_hints_post(fd: RawFd, size: u64) {
+    if size >= IO_HINT_THRESHOLD {
+        unsafe {
+            libc::posix_fadvise(fd, 0, file_size_as_i64(size), libc::POSIX_FADV_DONTNEED);
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn apply_io_hints_post(_fd: RawFd, _size: u64) {}
+
+/// Core file hashing: read file contents through a blake3 hasher and produce XOF output.
+/// Uses adaptive buffer sizing based on file size for optimal I/O throughput.
+/// Heap-allocates all buffers to avoid stack overflow in rayon worker threads.
+fn hash_file_contents(
+    file: &mut File,
+    file_size: u64,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut hasher = blake3::Hasher::new();
+
+    let buffer_size = get_buffer_size(file_size);
+    let mut buffer = vec![0u8; buffer_size];
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+
+    let mut output = vec![0u8; CHECKSUM_SIZE];
+    hasher.finalize_xof().fill(&mut output);
+    Ok(output)
+}
+
 /// Hash a file using openat() to avoid path resolution overhead.
-/// Takes a directory fd and filename instead of full path.
-/// Uses adaptive buffer sizing for optimal performance on different file sizes.
 fn hash_file_openat(
     dir_fd: RawFd,
     entry: &FileEntry,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    // Open file relative to directory fd
     let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
     if fd < 0 {
         return Err(format!("openat failed: {}", std::io::Error::last_os_error()).into());
     }
 
-    // Wrap in File for automatic close and safe reading.
     // SAFETY: fd is a valid, newly opened file descriptor from openat().
     let mut file = unsafe { File::from_raw_fd(fd) };
 
-    // Apply I/O hints for larger files.
-    // Use file.as_raw_fd() instead of the raw `fd` variable to make it clear
-    // we're accessing the fd through its owning File.
-    #[cfg(target_os = "linux")]
-    if entry.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    if entry.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::fcntl(file.as_raw_fd(), libc::F_RDAHEAD, 1);
-        }
-    }
-
-    let mut hasher = blake3::Hasher::new();
-
-    // Use adaptive buffer sizing based on file size
-    let buffer_size = get_buffer_size(entry.size);
-
-    if buffer_size <= SMALL_BUFFER_SIZE {
-        let mut buffer = [0u8; SMALL_BUFFER_SIZE];
-        loop {
-            let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-    } else {
-        let mut buffer = vec![0u8; buffer_size];
-        loop {
-            let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-    }
-
-    let mut output = vec![0u8; 2048];
-    hasher.finalize_xof().fill(&mut output);
-
-    // Advise the kernel to free cached pages after reading (reduces cache pollution)
-    #[cfg(target_os = "linux")]
-    if entry.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(
-                file.as_raw_fd(),
-                0,
-                entry.size as i64,
-                libc::POSIX_FADV_DONTNEED,
-            );
-        }
-    }
+    apply_io_hints_pre(file.as_raw_fd(), entry.size);
+    let output = hash_file_contents(&mut file, entry.size)?;
+    apply_io_hints_post(file.as_raw_fd(), entry.size);
 
     Ok(output)
 }
 
 /// Hash all files in a DirContext using openat().
-/// Uses SIMD-optimized reduction for combining file hashes.
 fn hash_dir_files_openat(
     ctx: &DirContext,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     if ctx.files.is_empty() {
-        return Ok(vec![0u8; 2048]);
+        return Ok(vec![0u8; CHECKSUM_SIZE]);
     }
 
-    // Hash files in parallel using openat with SIMD-optimized reduction
     ctx.files
         .par_iter()
         .map(|entry| hash_file_openat(ctx.dir_fd, entry))
-        .try_reduce(|| vec![0u8; 2048], reduce_checksums)
+        .try_reduce(|| vec![0u8; CHECKSUM_SIZE], reduce_checksums)
 }
 
-/// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
-/// Uses adaptive buffer sizing for optimal performance.
+/// Hash a file by full path and return the BLAKE3 XOF output for LtHash.
 fn hash_file_optimized(
     info: &FileInfo,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut file = File::open(&info.path)?;
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    let fd = file.as_raw_fd();
-
-    // Only apply I/O hints for larger files where benefit exceeds syscall overhead
-    #[cfg(target_os = "linux")]
-    if info.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    if info.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::fcntl(fd, libc::F_RDAHEAD, 1);
-        }
-    }
-
-    let mut hasher = blake3::Hasher::new();
-
-    // Use adaptive buffer sizing based on file size
-    let buffer_size = get_buffer_size(info.size);
-
-    if buffer_size <= SMALL_BUFFER_SIZE {
-        // Small buffer: stack-allocated
-        let mut buffer = [0u8; SMALL_BUFFER_SIZE];
-        loop {
-            let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-    } else {
-        // Large buffer: heap-allocated
-        let mut buffer = vec![0u8; buffer_size];
-        loop {
-            let n = file.read(&mut buffer)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-    }
-
-    let mut output = vec![0u8; 2048];
-    hasher.finalize_xof().fill(&mut output);
-
-    #[cfg(target_os = "linux")]
-    if info.size >= IO_HINT_THRESHOLD {
-        unsafe {
-            libc::posix_fadvise(fd, 0, info.size as i64, libc::POSIX_FADV_DONTNEED);
-        }
-    }
+    apply_io_hints_pre(file.as_raw_fd(), info.size);
+    let output = hash_file_contents(&mut file, info.size)?;
+    apply_io_hints_post(file.as_raw_fd(), info.size);
 
     Ok(output)
 }
 
 /// Hash files in parallel, combining checksums via tree reduction.
-/// Uses SIMD-optimized reduction for combining file hashes.
 fn hash_files_parallel(
     file_infos: Vec<FileInfo>,
 ) -> Result<LtHash16_1024, Box<dyn std::error::Error + Send + Sync>> {
@@ -826,7 +748,7 @@ fn hash_files_parallel(
     let combined = file_infos
         .par_iter()
         .map(hash_file_optimized)
-        .try_reduce(|| vec![0u8; 2048], reduce_checksums)?;
+        .try_reduce(|| vec![0u8; CHECKSUM_SIZE], reduce_checksums)?;
 
     LtHash16_1024::with_checksum(&combined)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)

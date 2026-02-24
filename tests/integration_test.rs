@@ -1182,13 +1182,16 @@ fn test_determinism_stress() -> Result<(), LtHashError> {
         "Order should not matter"
     );
 
-    // Create same hash using parallel
-    let hash3 = LtHash16_1024::from_parallel(&items)?;
-    assert_eq!(
-        hash1.checksum(),
-        hash3.checksum(),
-        "Parallel should match sequential"
-    );
+    // Create same hash using parallel (when feature is available)
+    #[cfg(feature = "parallel")]
+    {
+        let hash3 = LtHash16_1024::from_parallel(&items)?;
+        assert_eq!(
+            hash1.checksum(),
+            hash3.checksum(),
+            "Parallel should match sequential"
+        );
+    }
 
     Ok(())
 }
