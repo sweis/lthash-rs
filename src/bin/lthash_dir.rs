@@ -13,48 +13,51 @@ use std::time::Instant;
 
 /// SIMD-optimized u16 element-wise wrapping addition for LtHash combination.
 /// Processes 2048 bytes (1024 u16 elements) at a time.
-/// Uses explicit SIMD on supported platforms, falls back to optimized scalar.
+/// Uses `align_to` for safe alignment handling with auto-vectorization.
 #[inline(always)]
 fn combine_checksums_simd(dest: &mut [u8], src: &[u8]) {
     debug_assert_eq!(dest.len(), 2048);
     debug_assert_eq!(src.len(), 2048);
 
-    // Process as u64 for better performance (4 u16s at a time)
-    // The compiler can auto-vectorize this pattern effectively
-    let dest_u64 = unsafe {
-        std::slice::from_raw_parts_mut(dest.as_mut_ptr() as *mut u64, 256)
-    };
-    let src_u64 = unsafe {
-        std::slice::from_raw_parts(src.as_ptr() as *const u64, 256)
-    };
+    // Use align_to for safe u64 reinterpretation (handles alignment correctly).
+    // Vec<u8> from the global allocator is always at least pointer-aligned,
+    // so prefix/suffix will be empty, but we assert to catch edge cases.
+    let (d_prefix, dest_u64, d_suffix) = unsafe { dest.align_to_mut::<u64>() };
+    let (s_prefix, src_u64, s_suffix) = unsafe { src.align_to::<u64>() };
+    assert!(
+        d_prefix.is_empty() && d_suffix.is_empty() && s_prefix.is_empty() && s_suffix.is_empty(),
+        "Checksum buffers must be u64-aligned"
+    );
 
     // Split-lane addition for u16 elements packed in u64
     // This pattern is SIMD-friendly and auto-vectorizes well
-    const MASK_A: u64 = 0xffff0000ffff0000u64;
-    const MASK_B: u64 = 0x0000ffff0000ffffu64;
+    const MASK_A: u64 = 0xffff_0000_ffff_0000_u64;
+    const MASK_B: u64 = 0x0000_ffff_0000_ffff_u64;
 
-    for i in 0..256 {
-        let a = dest_u64[i];
-        let b = src_u64[i];
+    for (d, &s) in dest_u64.iter_mut().zip(src_u64.iter()) {
+        let a = *d;
 
         // Split into alternating lanes
         let a_a = a & MASK_A;
         let a_b = a & MASK_B;
-        let b_a = b & MASK_A;
-        let b_b = b & MASK_B;
+        let b_a = s & MASK_A;
+        let b_b = s & MASK_B;
 
         // Add each lane independently (wrapping within 16 bits)
         let result_a = a_a.wrapping_add(b_a) & MASK_A;
         let result_b = a_b.wrapping_add(b_b) & MASK_B;
 
-        dest_u64[i] = result_a | result_b;
+        *d = result_a | result_b;
     }
 }
 
 /// Optimized reduction function for combining multiple checksums.
 /// Uses SIMD-friendly patterns for better auto-vectorization.
 #[inline]
-fn reduce_checksums(mut a: Vec<u8>, b: Vec<u8>) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+fn reduce_checksums(
+    mut a: Vec<u8>,
+    b: Vec<u8>,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     combine_checksums_simd(&mut a, &b);
     Ok(a)
 }
@@ -101,7 +104,7 @@ struct Progress {
     bytes_processed: AtomicU64,
     total_bytes: AtomicU64,
     total_files: AtomicUsize,
-    last_print: AtomicU64,  // Last print time in millis since start
+    last_print: AtomicU64, // Last print time in millis since start
     start_time: Instant,
     enabled: bool,
 }
@@ -151,12 +154,11 @@ impl Progress {
         // Only print if enough time has passed
         if now_ms.saturating_sub(last) >= PROGRESS_PRINT_INTERVAL_MS {
             // Try to claim the print slot (avoid multiple threads printing)
-            if self.last_print.compare_exchange(
-                last,
-                now_ms,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if self
+                .last_print
+                .compare_exchange(last, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
                 self.print_progress();
             }
         }
@@ -495,18 +497,24 @@ fn hash_dir_recursive_inner(
     let mut total_bytes = 0u64;
 
     // Open directory for openat() - avoids path resolution per file
-    let dir_cstr = CString::new(dir.as_os_str().as_bytes())
-        .map_err(|_| "invalid directory path")?;
+    let dir_cstr =
+        CString::new(dir.as_os_str().as_bytes()).map_err(|_| "invalid directory path")?;
     let dir_fd = unsafe { libc::open(dir_cstr.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY) };
     if dir_fd < 0 {
-        eprintln!("warning: cannot open dir '{}': {}", dir.display(), std::io::Error::last_os_error());
+        eprintln!(
+            "warning: cannot open dir '{}': {}",
+            dir.display(),
+            std::io::Error::last_os_error()
+        );
         return Ok((LtHash16_1024::new()?, Stats::new()));
     }
 
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
-            unsafe { libc::close(dir_fd); }
+            unsafe {
+                libc::close(dir_fd);
+            }
             eprintln!("warning: cannot read '{}': {}", dir.display(), e);
             return Ok((LtHash16_1024::new()?, Stats::new()));
         }
@@ -631,9 +639,9 @@ fn collect_file_infos(
 const IO_HINT_THRESHOLD: u64 = 262144; // 256KB
 
 /// Buffer sizes for adaptive I/O based on file size
-const SMALL_BUFFER_SIZE: usize = 65536;      // 64KB for files < 1MB
-const MEDIUM_BUFFER_SIZE: usize = 262144;    // 256KB for files 1-16MB
-const LARGE_BUFFER_SIZE: usize = 1048576;    // 1MB for files > 16MB
+const SMALL_BUFFER_SIZE: usize = 65536; // 64KB for files < 1MB
+const MEDIUM_BUFFER_SIZE: usize = 262144; // 256KB for files 1-16MB
+const LARGE_BUFFER_SIZE: usize = 1048576; // 1MB for files > 16MB
 
 /// Get optimal buffer size based on file size
 #[inline]
@@ -657,28 +665,27 @@ fn hash_file_openat(
     // Open file relative to directory fd
     let fd = unsafe { libc::openat(dir_fd, entry.name.as_ptr(), libc::O_RDONLY) };
     if fd < 0 {
-        return Err(format!(
-            "openat failed: {}",
-            std::io::Error::last_os_error()
-        )
-        .into());
+        return Err(format!("openat failed: {}", std::io::Error::last_os_error()).into());
     }
 
-    // Wrap in File for automatic close and safe reading
+    // Wrap in File for automatic close and safe reading.
+    // SAFETY: fd is a valid, newly opened file descriptor from openat().
     let mut file = unsafe { File::from_raw_fd(fd) };
 
-    // Apply I/O hints for larger files
+    // Apply I/O hints for larger files.
+    // Use file.as_raw_fd() instead of the raw `fd` variable to make it clear
+    // we're accessing the fd through its owning File.
     #[cfg(target_os = "linux")]
     if entry.size >= IO_HINT_THRESHOLD {
         unsafe {
-            libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+            libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
         }
     }
 
     #[cfg(target_os = "macos")]
     if entry.size >= IO_HINT_THRESHOLD {
         unsafe {
-            libc::fcntl(fd, libc::F_RDAHEAD, 1);
+            libc::fcntl(file.as_raw_fd(), libc::F_RDAHEAD, 1);
         }
     }
 
@@ -687,9 +694,7 @@ fn hash_file_openat(
     // Use adaptive buffer sizing based on file size
     let buffer_size = get_buffer_size(entry.size);
 
-    // Use a thread-local buffer pool for large buffers to avoid repeated allocations
     if buffer_size <= SMALL_BUFFER_SIZE {
-        // Small buffer: stack-allocated
         let mut buffer = [0u8; SMALL_BUFFER_SIZE];
         loop {
             let n = file.read(&mut buffer)?;
@@ -699,7 +704,6 @@ fn hash_file_openat(
             hasher.update(&buffer[..n]);
         }
     } else {
-        // Large buffer: heap-allocated
         let mut buffer = vec![0u8; buffer_size];
         loop {
             let n = file.read(&mut buffer)?;
@@ -713,10 +717,16 @@ fn hash_file_openat(
     let mut output = vec![0u8; 2048];
     hasher.finalize_xof().fill(&mut output);
 
+    // Advise the kernel to free cached pages after reading (reduces cache pollution)
     #[cfg(target_os = "linux")]
     if entry.size >= IO_HINT_THRESHOLD {
         unsafe {
-            libc::posix_fadvise(fd, 0, entry.size as i64, libc::POSIX_FADV_DONTNEED);
+            libc::posix_fadvise(
+                file.as_raw_fd(),
+                0,
+                entry.size as i64,
+                libc::POSIX_FADV_DONTNEED,
+            );
         }
     }
 
@@ -741,7 +751,9 @@ fn hash_dir_files_openat(
 
 /// Hash a file and return the 2KB BLAKE3 XOF output for LtHash.
 /// Uses adaptive buffer sizing for optimal performance.
-fn hash_file_optimized(info: &FileInfo) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+fn hash_file_optimized(
+    info: &FileInfo,
+) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     let mut file = File::open(&info.path)?;
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

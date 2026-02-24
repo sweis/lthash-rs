@@ -1,18 +1,18 @@
-//! LtHash - Lattice-based Homomorphic Hash Function
+//! `LtHash` - Lattice-based Homomorphic Hash Function
 //!
-//! This module implements LtHash (Lattice Hash), a cryptographic hash function that supports
+//! This module implements `LtHash` (Lattice Hash), a cryptographic hash function that supports
 //! homomorphic operations, allowing efficient combining and updating of hash values without
 //! recomputing from scratch.
 //!
 //! ## Background and Theory
 //!
-//! LtHash was originally proposed by Bellare and Micciancio in their paper "A Concrete Security
+//! `LtHash` was originally proposed by Bellare and Micciancio in their paper "A Concrete Security
 //! Treatment of Symmetric Encryption" and later refined for practical use by Facebook.
 //! The algorithm provides several key properties:
 //!
 //! ### Homomorphic Properties
 //!
-//! LtHash supports **set homomorphism**, meaning:
+//! `LtHash` supports **set homomorphism**, meaning:
 //! - **Commutative**: `H(a + b) = H(b + a)` - order doesn't matter
 //! - **Additive**: `H(S ∪ T) = H(S) + H(T)` for disjoint sets S and T
 //! - **Subtractive**: `H(S \ T) = H(S) - H(T)` for T ⊆ S
@@ -49,18 +49,18 @@
 //! 1. **Element Representation**: Objects are hashed into fixed-size arrays of B-bit elements
 //! 2. **Modular Arithmetic**: Operations are performed element-wise modulo 2^B
 //! 3. **Packed Storage**: Multiple elements are packed into 64-bit words for efficiency
-//! 4. **Blake2xb Backend**: Uses Blake2xb as the underlying hash function for individual objects
+//! 4. **XOF Backend**: Uses BLAKE3 (default) or Blake2xb (`folly-compat`) as the underlying XOF
 //!
 //! ### Supported Configurations
 //!
-//! This implementation supports three configurations compatible with Facebook's Folly library:
+//! This implementation supports three configurations:
 //! - `LtHash<16, 1024>`: 16-bit elements, 1024 elements (2048 bytes output)
 //! - `LtHash<20, 1008>`: 20-bit elements, 1008 elements (2688 bytes output)
 //! - `LtHash<32, 1024>`: 32-bit elements, 1024 elements (4096 bytes output)
 //!
 //! ### Production Use at Facebook
 //!
-//! Facebook deployed LtHash in their Location Aware Distribution (LAD) system for:
+//! Facebook deployed `LtHash` in their Location Aware Distribution (LAD) system for:
 //! - Efficient database update verification across untrusted networks
 //! - Secure propagation of configuration changes
 //! - Distributed system integrity checking
@@ -96,11 +96,11 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-/// LtHash instance with compile-time element size and count parameters
+/// `LtHash` instance with compile-time element size and count parameters
 ///
 /// This structure represents a homomorphic hash function with:
 /// - `B`: Element size in bits (16, 20, or 32)
-/// - `N`: Number of elements (must be ≥ 1000 and divisible by elements_per_u64())
+/// - `N`: Number of elements (must be >= 1000 and divisible by `elements_per_u64()`)
 ///
 /// The checksum is stored as a packed array of B-bit elements, with multiple
 /// elements stored in each u64 word for efficiency. Optional cryptographic
@@ -130,7 +130,7 @@ impl<const B: usize, const N: usize> std::fmt::Debug for LtHash<B, N> {
         f.debug_struct("LtHash")
             .field("checksum_len", &self.checksum.len())
             .field("has_key", &self.key.is_some())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -197,7 +197,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
 
     /// Set the authentication key for keyed hashing.
     ///
-    /// The key material is run through a KDF (BLAKE3 derive_key) to produce
+    /// The key material is run through a KDF (BLAKE3 `derive_key`) to produce
     /// a fixed 32-byte derived key. This allows accepting arbitrary-length
     /// key material while ensuring uniform key distribution.
     ///
@@ -255,9 +255,16 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     ///
     /// Returns true if no objects have been added, or if all added objects
     /// have been subsequently removed.
+    ///
+    /// This uses constant-time comparison to prevent timing side channels
+    /// that could leak information about the hash state.
     #[must_use]
     pub fn is_zero(&self) -> bool {
-        self.checksum.iter().all(|&b| b == 0)
+        let mut acc = 0u8;
+        for &b in &self.checksum {
+            acc |= b;
+        }
+        acc == 0
     }
 
     /// Add data to this hash.
@@ -329,7 +336,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// Hash multiple items in parallel and add them to this hash.
     ///
     /// This method uses rayon to hash each item in a separate thread,
-    /// then combines results using parallel tree reduction. Since LtHash is
+    /// then combines results using parallel tree reduction. Since `LtHash` is
     /// homomorphic, the order of addition doesn't matter, making this safe
     /// for parallel execution.
     ///
@@ -414,7 +421,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(self)
     }
 
-    /// Create a new LtHash by hashing multiple items in parallel.
+    /// Create a new `LtHash` by hashing multiple items in parallel.
     ///
     /// This is a convenience method equivalent to creating a new hash
     /// and calling `add_parallel`.
@@ -426,7 +433,7 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         Ok(hash)
     }
 
-    /// Create a new LtHash by hashing multiple readers in parallel.
+    /// Create a new `LtHash` by hashing multiple readers in parallel.
     ///
     /// This is a convenience method equivalent to creating a new hash
     /// and calling `add_streams_parallel`.
@@ -816,8 +823,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
                 // Special handling for 16-bit elements (4 per u64)
                 // Split into alternating groups: A = W,0,Y,0 and B = 0,X,0,Z
                 // This allows parallel processing of all 4 elements
-                let mask_a = 0xffff0000ffff0000u64;
-                let mask_b = 0x0000ffff0000ffffu64;
+                let mask_a = 0xffff_0000_ffff_0000_u64;
+                let mask_b = 0x0000_ffff_0000_ffff_u64;
                 let a_a = a & mask_a;
                 let a_b = a & mask_b;
                 let b_a = b & mask_a;
@@ -829,8 +836,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             32 => {
                 // Special handling for 32-bit elements (2 per u64)
                 // Split into high and low 32-bit halves
-                let mask_a = 0xffffffff00000000u64;
-                let mask_b = 0x00000000ffffffffu64;
+                let mask_a = 0xffff_ffff_0000_0000_u64;
+                let mask_b = 0x0000_0000_ffff_ffff_u64;
                 let a_a = a & mask_a;
                 let a_b = a & mask_b;
                 let b_a = b & mask_a;
@@ -852,8 +859,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
         match B {
             16 => {
                 // Special handling for 16-bit elements like C++
-                let mask_a = 0xffff0000ffff0000u64;
-                let mask_b = 0x0000ffff0000ffffu64;
+                let mask_a = 0xffff_0000_ffff_0000_u64;
+                let mask_b = 0x0000_ffff_0000_ffff_u64;
                 let a_a = a & mask_a;
                 let a_b = a & mask_b;
                 let b_a = b & mask_a;
@@ -864,8 +871,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
             }
             32 => {
                 // Special handling for 32-bit elements like C++
-                let mask_a = 0xffffffff00000000u64;
-                let mask_b = 0x00000000ffffffffu64;
+                let mask_a = 0xffff_ffff_0000_0000_u64;
+                let mask_b = 0x0000_0000_ffff_ffff_u64;
                 let a_a = a & mask_a;
                 let a_b = a & mask_b;
                 let b_a = b & mask_a;
@@ -929,9 +936,9 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// - 32-bit: No padding needed (2 * 32 = 64 bits exactly)
     const fn data_mask() -> u64 {
         match B {
-            16 => 0xffffffffffffffff,  // No padding
-            20 => !0xC000020000100000, // Padding bits at specific positions
-            32 => 0xffffffffffffffff,  // No padding
+            16 => 0xffff_ffff_ffff_ffff,  // No padding
+            20 => !0xC000_0200_0010_0000, // Padding bits at specific positions
+            32 => 0xffff_ffff_ffff_ffff,  // No padding
             _ => panic!("Unsupported element size"),
         }
     }

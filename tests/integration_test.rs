@@ -1128,7 +1128,10 @@ fn test_add_remove_stress() -> Result<(), LtHashError> {
         hash.remove(data)?;
     }
 
-    assert!(hash.is_zero(), "Hash should return to zero after equal adds and removes");
+    assert!(
+        hash.is_zero(),
+        "Hash should return to zero after equal adds and removes"
+    );
     Ok(())
 }
 
@@ -1147,7 +1150,11 @@ fn test_u16_wrapping() -> Result<(), LtHashError> {
     // Adding 65536 times with 16-bit wrapping should be equivalent to adding 0 times
     // (since 65536 mod 2^16 = 0)
     let empty = LtHash16_1024::new()?;
-    assert_eq!(hash.checksum(), empty.checksum(), "65536 adds should wrap to zero");
+    assert_eq!(
+        hash.checksum(),
+        empty.checksum(),
+        "65536 adds should wrap to zero"
+    );
 
     Ok(())
 }
@@ -1169,11 +1176,19 @@ fn test_determinism_stress() -> Result<(), LtHashError> {
         hash2.add(*item)?;
     }
 
-    assert_eq!(hash1.checksum(), hash2.checksum(), "Order should not matter");
+    assert_eq!(
+        hash1.checksum(),
+        hash2.checksum(),
+        "Order should not matter"
+    );
 
     // Create same hash using parallel
     let hash3 = LtHash16_1024::from_parallel(&items)?;
-    assert_eq!(hash1.checksum(), hash3.checksum(), "Parallel should match sequential");
+    assert_eq!(
+        hash1.checksum(),
+        hash3.checksum(),
+        "Parallel should match sequential"
+    );
 
     Ok(())
 }
@@ -1187,7 +1202,10 @@ fn test_all_zeros_input() -> Result<(), LtHashError> {
     hash.add(&zeros)?;
 
     // All-zeros input should produce non-zero hash
-    assert!(!hash.is_zero(), "All-zeros input should produce non-zero hash");
+    assert!(
+        !hash.is_zero(),
+        "All-zeros input should produce non-zero hash"
+    );
 
     // Removing should return to zero
     hash.remove(&zeros)?;
@@ -1204,7 +1222,10 @@ fn test_all_ones_input() -> Result<(), LtHashError> {
     let mut hash = LtHash16_1024::new()?;
     hash.add(&ones)?;
 
-    assert!(!hash.is_zero(), "All-ones input should produce non-zero hash");
+    assert!(
+        !hash.is_zero(),
+        "All-ones input should produce non-zero hash"
+    );
 
     hash.remove(&ones)?;
     assert!(hash.is_zero());
