@@ -1,21 +1,22 @@
-//! LtHash-rs: Lattice-based Homomorphic Hashing for Rust
+//! # LtHash-rs: Lattice-based Homomorphic Hashing for Rust
 //!
-//! This crate provides a Rust implementation of LtHash (Lattice Hash), a cryptographic
+//! This crate provides a Rust implementation of `LtHash` (Lattice Hash), a cryptographic
 //! hash function that supports homomorphic operations, enabling efficient verification
 //! and updating of hash values without recomputing from scratch.
 //!
 //! ## Overview
 //!
-//! LtHash was originally developed by Bellare and Micciancio and later refined by Facebook
-//! for production use in their distributed systems. This implementation is fully compatible
-//! with Facebook's C++ reference implementation in the Folly library.
+//! `LtHash` was originally developed by Bellare and Micciancio and later refined by Facebook
+//! for production use in their distributed systems. This implementation uses BLAKE3 as
+//! the default backend for pure-Rust high performance, with an optional `folly-compat`
+//! feature for binary compatibility with Facebook's C++ Folly library.
 //!
 //! ### Key Features
 //!
-//! - **Homomorphic Properties**: Support for set union, intersection, and difference operations
+//! - **Homomorphic Properties**: Support for set union and difference operations
 //! - **High Performance**: Optimized arithmetic for different element sizes (16, 20, 32 bits)
-//! - **Production Ready**: Used by Facebook in their Location Aware Distribution system
-//! - **Cross-Compatible**: Binary compatibility with Facebook's Folly C++ implementation
+//! - **Pure Rust Default**: BLAKE3 backend with no C dependencies
+//! - **Optional Folly Compatibility**: Binary-compatible output with Facebook's C++ implementation
 //! - **Secure**: At least 200 bits of security based on lattice cryptography
 //!
 //! ### Use Cases
@@ -57,7 +58,7 @@
 //!
 //! ## Module Organization
 //!
-//! - [`LtHash`]: Core LtHash implementation with const generic parameters
+//! - [`LtHash`]: Core `LtHash` implementation with const generic parameters
 //! - [`LtHashError`]: Error types for the library
 //! - `blake2xb`: Blake2xb XOF (requires `folly-compat` feature)
 //! - `blake3_xof`: BLAKE3 XOF (default backend)

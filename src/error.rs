@@ -42,7 +42,7 @@ pub enum LtHashError {
     Blake2Error(&'static str),
 
     #[error("I/O error: {0}")]
-    IoError(&'static str),
+    IoError(#[from] std::io::Error),
 
     #[error("Key mismatch: cannot combine LtHashes with different keys")]
     KeyMismatch,

@@ -239,9 +239,7 @@ impl Blake2xb {
         let mut total_bytes = 0u64;
 
         loop {
-            let bytes_read = reader
-                .read(&mut buffer)
-                .map_err(|_| LtHashError::IoError("error reading from stream"))?;
+            let bytes_read = reader.read(&mut buffer).map_err(LtHashError::IoError)?;
 
             if bytes_read == 0 {
                 break;

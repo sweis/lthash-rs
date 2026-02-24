@@ -10,13 +10,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  check:
+    name: Check & Lint
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Format check
+      run: cargo fmt -- --check
+    - name: Clippy (default features)
+      run: cargo clippy -- -D warnings
 
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features:
+          - ""                # default features (blake3-backend, parallel)
+          - "--no-default-features --features blake3-backend"  # blake3 without parallel
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose ${{ matrix.features }}
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose ${{ matrix.features }}

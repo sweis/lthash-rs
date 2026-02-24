@@ -1,7 +1,7 @@
 //! BLAKE3 XOF - Extendable Output Function using BLAKE3
 //!
 //! This module provides a BLAKE3-based XOF that can be used as an alternative
-//! to Blake2xb for LtHash. BLAKE3 offers better performance (especially with
+//! to Blake2xb for `LtHash`. BLAKE3 offers better performance (especially with
 //! SIMD) and is a pure Rust implementation with no C dependencies.
 //!
 //! ## Security Properties
@@ -13,13 +13,13 @@
 //! - Pseudorandom output (XOF mode)
 //! - No length extension attacks
 //!
-//! These properties satisfy the requirements for LtHash's underlying hash function
+//! These properties satisfy the requirements for `LtHash`'s underlying hash function
 //! as specified in the academic papers.
 //!
 //! ## Differences from Blake2xb
 //!
 //! - Keys must be exactly 32 bytes (Blake2xb accepts 16-64 bytes)
-//! - No salt or personalization parameters (not needed for LtHash)
+//! - No salt or personalization parameters (not needed for `LtHash`)
 //! - Generally faster, especially on modern CPUs with SIMD support
 //!
 //! ## Compatibility
@@ -131,9 +131,7 @@ impl Blake3Xof {
         let mut total_bytes = 0u64;
 
         loop {
-            let bytes_read = reader
-                .read(&mut buffer)
-                .map_err(|_| LtHashError::IoError("error reading from stream"))?;
+            let bytes_read = reader.read(&mut buffer).map_err(LtHashError::IoError)?;
 
             if bytes_read == 0 {
                 break;
