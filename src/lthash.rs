@@ -936,9 +936,8 @@ impl<const B: usize, const N: usize> LtHash<B, N> {
     /// - 32-bit: No padding needed (2 * 32 = 64 bits exactly)
     const fn data_mask() -> u64 {
         match B {
-            16 => 0xffff_ffff_ffff_ffff,  // No padding
-            20 => !0xC000_0200_0010_0000, // Padding bits at specific positions
-            32 => 0xffff_ffff_ffff_ffff,  // No padding
+            16 | 32 => 0xffff_ffff_ffff_ffff, // No padding (elements fit exactly in u64)
+            20 => !0xC000_0200_0010_0000,     // Padding bits at specific positions
             _ => panic!("Unsupported element size"),
         }
     }

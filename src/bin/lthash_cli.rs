@@ -67,7 +67,7 @@ OUTPUT:
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("error: {}", e);
+        eprintln!("error: {e}");
         process::exit(1);
     }
 }
@@ -76,13 +76,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("{}", USAGE);
+        eprintln!("{USAGE}");
         process::exit(1);
     }
 
     match args[1].as_str() {
         "-h" | "--help" | "help" => {
-            println!("{}", USAGE);
+            println!("{USAGE}");
             Ok(())
         }
         "add" => {
@@ -93,7 +93,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             let hash_arg = &args[2];
             let file_args: Vec<&str> = if args.len() > 3 {
-                args[3..].iter().map(|s| s.as_str()).collect()
+                args[3..].iter().map(String::as_str).collect()
             } else {
                 vec!["-"]
             };
@@ -107,15 +107,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             let hash_arg = &args[2];
             let file_args: Vec<&str> = if args.len() > 3 {
-                args[3..].iter().map(|s| s.as_str()).collect()
+                args[3..].iter().map(String::as_str).collect()
             } else {
                 vec!["-"]
             };
             cmd_remove(hash_arg, &file_args)
         }
         _ => {
-            // All remaining args are file paths
-            let file_args: Vec<&str> = args[1..].iter().map(|s| s.as_str()).collect();
+            let file_args: Vec<&str> = args[1..].iter().map(String::as_str).collect();
             cmd_hash(&file_args)
         }
     }
@@ -125,7 +124,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn cmd_hash(file_args: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let hash = hash_files(file_args)?;
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
-    println!("{}", encoded);
+    println!("{encoded}");
     Ok(())
 }
 
@@ -138,7 +137,7 @@ fn cmd_add(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::error:
     hash.try_add(&file_hash)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
-    println!("{}", encoded);
+    println!("{encoded}");
     Ok(())
 }
 
@@ -151,7 +150,7 @@ fn cmd_remove(hash_arg: &str, file_args: &[&str]) -> Result<(), Box<dyn std::err
     hash.try_sub(&file_hash)?;
 
     let encoded = URL_SAFE_NO_PAD.encode(hash.checksum());
-    println!("{}", encoded);
+    println!("{encoded}");
     Ok(())
 }
 
@@ -188,8 +187,7 @@ fn hash_files_sequential(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn st
     let mut hash = LtHash16_1024::new()?;
 
     for file_arg in file_args {
-        let file =
-            File::open(file_arg).map_err(|e| format!("cannot open '{}': {}", file_arg, e))?;
+        let file = File::open(file_arg).map_err(|e| format!("cannot open '{file_arg}': {e}"))?;
         hash.add_stream(file)?;
     }
 
@@ -199,13 +197,11 @@ fn hash_files_sequential(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn st
 /// Hash files in parallel using rayon
 #[cfg(feature = "parallel")]
 fn hash_files_parallel(file_args: &[&str]) -> Result<LtHash16_1024, Box<dyn std::error::Error>> {
-    // Open all files first to catch errors early
     let files: Result<Vec<_>, _> = file_args
         .iter()
-        .map(|path| File::open(path).map_err(|e| format!("cannot open '{}': {}", path, e)))
+        .map(|path| File::open(path).map_err(|e| format!("cannot open '{path}': {e}")))
         .collect();
 
-    // Hash in parallel (blake3_xof uses 64KB internal buffer, no BufReader needed)
     LtHash16_1024::from_streams_parallel(files?).map_err(Into::into)
 }
 
@@ -225,13 +221,12 @@ fn read_hash(hash_arg: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 
     let decoded = URL_SAFE_NO_PAD
         .decode(&hash_str)
-        .map_err(|e| format!("invalid base64 hash: {}", e))?;
+        .map_err(|e| format!("invalid base64 hash: {e}"))?;
 
     let expected_size = LtHash16_1024::checksum_size_bytes();
     if decoded.len() != expected_size {
         return Err(format!(
-            "invalid hash size: expected {} bytes, got {} bytes",
-            expected_size,
+            "invalid hash size: expected {expected_size} bytes, got {} bytes",
             decoded.len()
         )
         .into());

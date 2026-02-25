@@ -46,8 +46,9 @@ impl Blake3Xof {
     pub const MAX_OUTPUT_LENGTH: usize = usize::MAX;
 
     /// Create a new BLAKE3 XOF hasher
+    #[must_use]
     pub fn new() -> Self {
-        Blake3Xof {
+        Self {
             hasher: None,
             output_length: 0,
             finished: false,
@@ -126,12 +127,14 @@ impl Blake3Xof {
             });
         }
 
-        // Use 64KB buffer - optimal for large file I/O throughput
-        let mut buffer = [0u8; 65536];
+        // Use 64KB heap buffer - optimal for large file I/O throughput.
+        // Heap-allocated to avoid stack overflow in rayon worker threads
+        // (which have smaller stacks than the main thread).
+        let mut buffer = vec![0u8; 65536];
         let mut total_bytes = 0u64;
 
         loop {
-            let bytes_read = reader.read(&mut buffer).map_err(LtHashError::IoError)?;
+            let bytes_read = reader.read(&mut buffer)?;
 
             if bytes_read == 0 {
                 break;
