@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Detect which files changed to conditionally run jobs
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      deps: ${{ steps.filter.outputs.deps }}
+      tests: ${{ steps.filter.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - '**/*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+            deps:
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - '**/Cargo.toml'
+            tests:
+              - '**/*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - 'tests/**'
+
+  test:
+    name: Test (${{ matrix.name }})
+    needs: changes
+    if: ${{ needs.changes.outputs.tests == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: default
+            features: ""
+          - name: blake3-only
+            features: "--no-default-features --features blake3-backend"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --verbose ${{ matrix.features }}
+      - run: cargo test --verbose ${{ matrix.features }}
+
+  clippy:
+    name: Clippy
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets -- -D warnings
+
+  fmt:
+    name: Format
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  audit:
+    name: Audit
+    needs: changes
+    if: ${{ needs.changes.outputs.deps == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit
+      - run: cargo audit
