@@ -1,0 +1,72 @@
+# cargo-mutants configuration
+# Run with: cargo mutants
+# See https://mutants.rs/ for documentation
+
+# Binary targets are not covered by unit/integration tests
+exclude_globs = ["src/bin/**"]
+
+# Regex patterns for mutants that cannot be caught by tests.
+# Each pattern matches against the full mutant description, formatted as:
+#   "file.rs:LINE:COL: replace X with Y in FunctionName"
+exclude_re = [
+    # ------------------------------------------------------------------------
+    # Code only compiled with the `folly-compat` feature (requires libsodium C
+    # library). The default feature set is `blake3-backend` + `parallel`, so
+    # none of this code is compiled or testable in a standard `cargo test` run.
+    # To test these, run: cargo mutants --features folly-compat
+    # ------------------------------------------------------------------------
+    "blake2xb\\.rs",
+
+    # ------------------------------------------------------------------------
+    # cfg-gated overloads in lthash.rs that share names with the default
+    # (tested) versions. These are only compiled with `folly-compat` or
+    # `not(parallel)`, making them unreachable with default features.
+    #
+    # We exclude by line number since the function names collide with tested
+    # code. If line numbers drift, cargo-mutants will report these as missed
+    # again; grep for #[cfg(feature = "folly-compat")] or
+    # #[cfg(not(feature = "parallel"))] to find the current locations.
+    # ------------------------------------------------------------------------
+    "lthash\\.rs:230:",  # folly-compat set_key
+    "lthash\\.rs:501:",  # not(parallel) add_all
+    "lthash\\.rs:558:",  # not(parallel) remove_all
+    "lthash\\.rs:661:",  # folly-compat hash_into_scratch
+    "lthash\\.rs:684:",  # folly-compat hash_reader_into_scratch
+    "lthash\\.rs:714:",  # folly-compat hash_data_to_vec
+    "lthash\\.rs:750:",  # folly-compat hash_reader_to_vec
+
+    # ------------------------------------------------------------------------
+    # Dead code by design: MAX_OUTPUT_LENGTH is usize::MAX for BLAKE3, so the
+    # comparison `output_length > usize::MAX` is always false. The code comment
+    # at blake3_xof.rs:72 explicitly states this is kept only for API
+    # consistency with Blake2xb.
+    # ------------------------------------------------------------------------
+    "replace > with == in Blake3Xof::init",
+    "replace > with >= in Blake3Xof::init",
+
+    # ------------------------------------------------------------------------
+    # Mathematically equivalent mutants: `result_a | result_b` and
+    # `result_a ^ result_b` produce identical output when result_a and result_b
+    # have no overlapping set bits. The masks (mask_a, mask_b) are complements,
+    # guaranteeing disjoint bits, so OR and XOR are provably equivalent here.
+    # No test can distinguish these mutants.
+    # ------------------------------------------------------------------------
+    "replace \\| with \\^ in .*add_with_mask",
+    "replace \\| with \\^ in .*subtract_with_mask",
+
+    # ------------------------------------------------------------------------
+    # Unobservable optimization: has_padding_bits() returning true for B=16/32
+    # causes clear_padding_bits() to run, but since data_mask() is all-ones for
+    # those element sizes, `value &= 0xffff_ffff_ffff_ffff` is a no-op.
+    # The early-return is purely a performance optimization.
+    # ------------------------------------------------------------------------
+    "has_padding_bits -> bool with true",
+
+    # ------------------------------------------------------------------------
+    # Drop impl zeroizes memory for defense-in-depth. Zeroization is a security
+    # best practice but cannot be observed from within the test process after
+    # deallocation (the memory is gone). Skipping Drop has no functional
+    # effect on hash correctness.
+    # ------------------------------------------------------------------------
+    "impl Drop.*drop",
+]
