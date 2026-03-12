@@ -1,4 +1,4 @@
-use lthash::{LtHash16_1024, LtHashError};
+use lthash::{LtHash, LtHash16_1024, LtHashError};
 
 #[cfg(feature = "folly-compat")]
 use lthash::Blake2xb;
@@ -1484,4 +1484,149 @@ fn test_blake3_xof_keyed_streaming() {
     Blake3Xof::hash(&mut oneshot_output, b"hello world", &key, &[], &[]).unwrap();
 
     assert_eq!(streaming_output, oneshot_output);
+}
+
+// ============================================================================
+// Tests added based on cargo-mutants analysis to close test coverage gaps
+// ============================================================================
+
+/// Test that invalid element count (too small) is rejected.
+/// Catches mutant: compile_time_checks replaced with Ok(()).
+#[test]
+fn test_invalid_element_count_too_small() {
+    // N must be >= 1000; these should all fail validation
+    assert!(
+        LtHash::<16, 100>::new().is_err(),
+        "N=100 should be rejected (< 1000)"
+    );
+    assert!(
+        LtHash::<16, 999>::new().is_err(),
+        "N=999 should be rejected (< 1000)"
+    );
+    assert!(
+        LtHash::<20, 999>::new().is_err(),
+        "N=999 should be rejected for B=20"
+    );
+    // Verify the boundary: N=1000 with B=16 should be accepted (1000 % 4 == 0)
+    assert!(
+        LtHash::<16, 1000>::new().is_ok(),
+        "N=1000 should be accepted"
+    );
+}
+
+/// Test that element count not divisible by elements_per_u64 is rejected.
+/// Catches mutant: compile_time_checks replaced with Ok(()).
+#[test]
+fn test_invalid_element_count_not_divisible() {
+    // For B=16, elements_per_u64=4, so N must be divisible by 4
+    assert!(
+        LtHash::<16, 1001>::new().is_err(),
+        "N=1001 should be rejected for B=16 (not divisible by 4)"
+    );
+    assert!(
+        LtHash::<16, 1002>::new().is_err(),
+        "N=1002 should be rejected for B=16 (not divisible by 4)"
+    );
+    assert!(
+        LtHash::<16, 1003>::new().is_err(),
+        "N=1003 should be rejected for B=16 (not divisible by 4)"
+    );
+
+    // For B=20, elements_per_u64=3, so N must be divisible by 3
+    assert!(
+        LtHash::<20, 1000>::new().is_err(),
+        "N=1000 should be rejected for B=20 (not divisible by 3)"
+    );
+    assert!(
+        LtHash::<20, 1001>::new().is_err(),
+        "N=1001 should be rejected for B=20 (not divisible by 3)"
+    );
+
+    // For B=32, elements_per_u64=2, so N must be divisible by 2
+    assert!(
+        LtHash::<32, 1001>::new().is_err(),
+        "N=1001 should be rejected for B=32 (not divisible by 2)"
+    );
+}
+
+/// Test that with_checksum also validates parameters.
+/// Catches mutant: compile_time_checks replaced with Ok(()).
+#[test]
+fn test_with_checksum_validates_params() {
+    let checksum = vec![0u8; 200];
+    assert!(
+        LtHash::<16, 100>::with_checksum(&checksum).is_err(),
+        "with_checksum should reject invalid N"
+    );
+}
+
+/// Test that update_reader returns the correct byte count.
+/// Catches mutant: total_bytes += replaced with *= (0 * n stays 0).
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_update_reader_byte_count() {
+    let data = b"The quick brown fox jumps over the lazy dog"; // 43 bytes
+
+    let mut xof = Blake3Xof::new();
+    xof.init(64, &[], &[], &[]).unwrap();
+    let bytes_read = xof
+        .update_reader(std::io::Cursor::new(&data[..]))
+        .unwrap();
+
+    assert_eq!(
+        bytes_read, 43,
+        "update_reader should return exact byte count"
+    );
+}
+
+/// Test update_reader byte count with data larger than the internal buffer.
+/// Ensures the += accumulation is correct across multiple read iterations.
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_update_reader_byte_count_multi_chunk() {
+    // Data larger than the 64KB internal buffer to force multiple iterations
+    let data = vec![0x42u8; 150_000];
+
+    let mut xof = Blake3Xof::new();
+    xof.init(64, &[], &[], &[]).unwrap();
+    let bytes_read = xof
+        .update_reader(std::io::Cursor::new(&data))
+        .unwrap();
+
+    assert_eq!(
+        bytes_read, 150_000,
+        "update_reader should correctly accumulate bytes across chunks"
+    );
+}
+
+/// Test update_reader byte count after calling finish should fail.
+/// Catches mutant: update_reader replaced with Ok(0) when finished.
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_update_reader_after_finish() {
+    let mut xof = Blake3Xof::new();
+    xof.init(64, &[], &[], &[]).unwrap();
+    xof.update(b"data").unwrap();
+    let mut output = [0u8; 64];
+    xof.finish(&mut output).unwrap();
+
+    // update_reader after finish should fail
+    let result = xof.update_reader(std::io::Cursor::new(b"more"));
+    assert!(
+        result.is_err(),
+        "update_reader after finish should return an error"
+    );
+}
+
+/// Test update_reader before init should fail.
+/// Catches mutant: update_reader replaced with Ok(0) when not initialized.
+#[cfg(feature = "blake3-backend")]
+#[test]
+fn test_update_reader_before_init() {
+    let mut xof = Blake3Xof::new();
+    let result = xof.update_reader(std::io::Cursor::new(b"data"));
+    assert!(
+        result.is_err(),
+        "update_reader before init should return an error"
+    );
 }

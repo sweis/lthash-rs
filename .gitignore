@@ -3,6 +3,9 @@
 Cargo.lock
 **/*.rs.bk
 
+# cargo-mutants
+/mutants.out*/
+
 # IDE
 .vscode/
 .idea/
