@@ -1569,9 +1569,7 @@ fn test_update_reader_byte_count() {
 
     let mut xof = Blake3Xof::new();
     xof.init(64, &[], &[], &[]).unwrap();
-    let bytes_read = xof
-        .update_reader(std::io::Cursor::new(&data[..]))
-        .unwrap();
+    let bytes_read = xof.update_reader(std::io::Cursor::new(&data[..])).unwrap();
 
     assert_eq!(
         bytes_read, 43,
@@ -1589,9 +1587,7 @@ fn test_update_reader_byte_count_multi_chunk() {
 
     let mut xof = Blake3Xof::new();
     xof.init(64, &[], &[], &[]).unwrap();
-    let bytes_read = xof
-        .update_reader(std::io::Cursor::new(&data))
-        .unwrap();
+    let bytes_read = xof.update_reader(std::io::Cursor::new(&data)).unwrap();
 
     assert_eq!(
         bytes_read, 150_000,
